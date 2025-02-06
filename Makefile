@@ -1,10 +1,10 @@
-MODULE_big = moonshot
+MODULE_big = plunijava
 
-OBJS = moonshot.o moonshot_worker.o moonshot_jvm.o moonshot_spi.o
+OBJS = plunijava.o plunijava_worker.o plunijava_jvm.o plunijava_spi.o
 
-EXTENSION = moonshot
-DATA = moonshot--0.0.1.sql
-PGFILEDESC = "moonshot - java language handler"
+EXTENSION = plunijava
+DATA = plunijava--0.0.1.sql
+PGFILEDESC = "plUniJava - java language handler"
 
 JAVA_HOME=$(shell readlink -f /usr/bin/javac | sed "s:bin/javac::")
 

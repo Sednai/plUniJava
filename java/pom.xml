@@ -3,11 +3,11 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>ai.sedn</groupId>
-  <artifactId>moonshot</artifactId>
+  <artifactId>plUniJava</artifactId>
   <version>0.0.1-SNAPSHOT</version>
   <packaging>jar</packaging>
 
-  <name>moonshot</name>
+  <name>plUniJava</name>
   <url>http://maven.apache.org</url>
 
   <properties>

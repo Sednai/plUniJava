@@ -1,5 +1,5 @@
-# moonshot extension
+# plUniJava extension
 comment = 'java language handler'
 default_version = '0.0.1'
-module_pathname = '$libdir/moonshot'
+module_pathname = '$libdir/plunijava'
 relocatable = true

@@ -1,5 +1,5 @@
-#ifndef MOONSHOT_SPI_H
-#define MOONSHOT_SPI_H
+#ifndef PLUNIJAVA_SPI_H
+#define PLUNIJAVA_SPI_H
 
 #include "postgres.h"
 
