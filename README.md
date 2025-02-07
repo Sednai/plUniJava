@@ -108,7 +108,7 @@ public static Iterator iter_test() {
 
 ## Java API
 
-The Non-JDBC API can only be invoked in foreground mode or in a user based background worker. Build the jar in the `java/` directory with `mvn` and load onto the classpath. The API requires Java 21 and the JVM flags `--enable-preview --enable-native-access=plunijava`
+The Non-JDBC API can only be invoked in foreground mode or in a user based background worker. Build the jar in the `java/` directory with `mvn` and load onto the module path. The API requires Java 21 and the JVM flags `--module-path=.:/pathto/plUniJava-0.0.1-SNAPSHOT.jar --enable-preview --enable-native-access=plunijava --add-modules=ALL-SYSTEM,plunijava`
 
 **Example**
 
