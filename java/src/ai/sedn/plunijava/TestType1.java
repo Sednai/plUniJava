@@ -1,4 +1,4 @@
-package ai.sedn.plUniJava;
+package ai.sedn.plunijava;
 
 public class TestType1 {
 	public int A;

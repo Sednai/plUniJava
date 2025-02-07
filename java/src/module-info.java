@@ -1,5 +1,5 @@
-module plUniJava {
-	exports ai.sedn.plUniJava;
+module plunijava {
+	exports ai.sedn.plunijava;
 
 	requires java.sql;
 }

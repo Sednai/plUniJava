@@ -1,4 +1,4 @@
-package ai.sedn.plUniJava;
+package ai.sedn.plunijava;
 
 import java.sql.SQLException;
 import java.util.ArrayList;

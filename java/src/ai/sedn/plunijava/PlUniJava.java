@@ -1,5 +1,5 @@
 
-package ai.sedn.plUniJava;
+package ai.sedn.plunijava;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
