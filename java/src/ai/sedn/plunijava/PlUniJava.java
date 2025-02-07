@@ -1,5 +1,5 @@
 
-package ai.sedn.moonshot;
+package ai.sedn.plunijava;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
@@ -23,7 +23,7 @@ import java.lang.foreign.SegmentAllocator;
 import java.sql.*;
 
 
-public class Moonshot {
+public class PlUniJava {
 	private Arena arena;
 	
 	private MethodHandle lib_connect;
@@ -46,12 +46,12 @@ public class Moonshot {
 	private VarHandle resultSize = arrayLayout.varHandle(MemoryLayout.PathElement.groupElement("size"));
 	private VarHandle resultArr = arrayLayout.varHandle(MemoryLayout.PathElement.groupElement("arr"));
 	
-	public Moonshot() {
+	public PlUniJava() {
 		Linker linker = Linker.nativeLinker();		
 		
 		arena = Arena.ofConfined();
 		
-		SymbolLookup lib = SymbolLookup.libraryLookup("/data/moonshot/moonshot.so", arena);
+		SymbolLookup lib = SymbolLookup.libraryLookup("plunijava.so", arena);
 	
 		MemorySegment lib_connect_addr = lib.find("connect_SPI").get();
 		FunctionDescriptor lib_connect_sig = FunctionDescriptor.of(JAVA_INT);
@@ -168,8 +168,7 @@ public void execute_nc(String query) throws Throwable {
 			
 			return ARR;
 		}
-		
-		
+			
 		return null;
 	}
 	

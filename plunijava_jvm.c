@@ -6,7 +6,7 @@
 #include "utils/array.h"
 #include "catalog/pg_type.h"
 #include <dlfcn.h>
-#include "moonshot_jvm.h"
+#include "plunijava_jvm.h"
 #include "utils/guc.h"
 
 #include "utils/tuplestore.h"
@@ -802,10 +802,10 @@ char** readOptions(char* filename, int* N) {
 JavaVMOption* setJVMoptions(int* numOptions) {
     
     // Read option string from GUC
-    char* OPTIONS = GetConfigOption("ms.jvmoptions",true,true);
+    char* OPTIONS = GetConfigOption("pluj.jvmoptions",true,true);
 
     if(OPTIONS == NULL) {
-        elog(ERROR,"ms.jvmoptions GUC not set");
+        elog(ERROR,"pluj.jvmoptions GUC not set");
     } 
 
     // Parse options
@@ -885,10 +885,10 @@ int startJVM(char* error_msg) {
     vm_args.ignoreUnrecognized = JNI_FALSE;
 
     // Read location of libjvm from GUC
-    char* JVM_SO_FILE = GetConfigOption("ms.libjvm",true,true);
+    char* JVM_SO_FILE = GetConfigOption("pluj.libjvm",true,true);
 
     if(JVM_SO_FILE == NULL) {
-        strcpy(error_msg,"ms.libjvm GUC pointing to libjvm.so not set");
+        strcpy(error_msg,"pluj.libjvm GUC pointing to libjvm.so not set");
         return -1;
     }
 

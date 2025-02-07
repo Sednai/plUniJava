@@ -17,9 +17,9 @@
 #include <signal.h>
 
 #include <jni.h>
-#include "moonshot_worker.h"
-#include "moonshot_jvm.h"
-#include "moonshot_spi.h"
+#include "plunijava_worker.h"
+#include "plunijava_jvm.h"
+#include "plunijava_spi.h"
 
 #include <dlfcn.h>
 #include "utils/snapmgr.h"
@@ -33,7 +33,7 @@ static worker_data_head *worker_head = NULL;
 #ifndef PGXC
 /* hook */
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
-static void ms_shmem_request(void);
+static void pluj_shmem_request(void);
 
 /*
  * Module load callback
@@ -45,18 +45,18 @@ _PG_init(void)
 			return;
 
 	prev_shmem_request_hook = shmem_request_hook;
-	shmem_request_hook = ms_shmem_request;
+	shmem_request_hook = pluj_shmem_request;
 }
 
 /* Reserve shared memory */
 static void
-ms_shmem_request(void)
+pluj_shmem_request(void)
 {
 	if (prev_shmem_request_hook)
 		prev_shmem_request_hook();
 
 	RequestAddinShmemSpace(mul_size(MAX_USERS,sizeof(worker_data_head)));
-	RequestNamedLWLockTranche("ms_background_workers", 1);
+	RequestNamedLWLockTranche("pluj_background_workers", 1);
 }
 #endif
 
@@ -69,9 +69,9 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 	
     char buf[BGW_MAXLEN];
 	if(!globalWorker) {
-		snprintf(buf, BGW_MAXLEN, "MW_%d_%d", roleid, dbid); 
+		snprintf(buf, BGW_MAXLEN, "UJ_%d_%d", roleid, dbid); 
 	} else {
-		snprintf(buf, BGW_MAXLEN, "MW_global");
+		snprintf(buf, BGW_MAXLEN, "UJ_global");
 	}
 
 	/* initialize worker data header */
@@ -111,14 +111,13 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
 		worker.bgw_restart_time = BGW_NEVER_RESTART; // Time in s to restart if crash. Use BGW_NEVER_RESTART for no restart;
 		
-		//char* WORKER_LIB = GetConfigOption("ms.lib",true,true);
-		char* WORKER_LIB = "$libdir/moonshot.so";
+		char* WORKER_LIB = "$libdir/plunijava.so";
 
 		sprintf(worker.bgw_library_name, WORKER_LIB);
-		sprintf(worker.bgw_function_name, "moonshot_worker_main");
+		sprintf(worker.bgw_function_name, "plunijava_worker_main");
 		
 		snprintf(worker.bgw_name, BGW_MAXLEN, "%s",buf);
-		//snprintf(worker.bgw_name, BGW_MAXLEN, "MW_%s_%d",buf,(n+1));
+		//snprintf(worker.bgw_name, BGW_MAXLEN, "UJ_%s_%d",buf,(n+1));
 			
 		worker.bgw_main_arg = Int32GetDatum(n);
 		worker.bgw_notify_pid = MyProcPid;
@@ -149,7 +148,7 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		
 		Assert(status == BGWH_STARTED);
 		
-		elog(WARNING,"Moonshot worker %d of %d initialized with pid %d (from %d)",(n+1),(int) fmin(n_workers,MAX_WORKERS),pid,MyProcPid);
+		elog(WARNING,"plUniJava worker %d of %d initialized with pid %d (from %d)",(n+1),(int) fmin(n_workers,MAX_WORKERS),pid,MyProcPid);
 	}
 
 	worker_head->n_workers = fmin(n_workers,MAX_WORKERS);
@@ -538,13 +537,13 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 void
 sigTermHandler(SIGNAL_ARGS)
 {
-    elog(WARNING,"Moonshot worker %d received sigterm",worker_id);
+    elog(WARNING,"plUniJava worker %d received sigterm",worker_id);
 	got_signal = true;
 	SetLatch(MyLatch);
 }
 
 void
-moonshot_worker_main(Datum main_arg)
+plunijava_worker_main(Datum main_arg)
 {
 	int			workerid = DatumGetInt32(main_arg);
 
@@ -665,114 +664,11 @@ moonshot_worker_main(Datum main_arg)
 			connect_SPI();
 			PushActiveSnapshot(GetTransactionSnapshot());
 		}
+		
 		/*
 			Call JAVA
 		*/
-		// ToDo: Move to switch function
-
-		/*
-		char* pos = entry->data;
-		for(int i = 0; i < entry->n_args; i++) {
-
-			char* T = pos;
-		 	pos += strlen(T)+1;
-			//elog(WARNING,"%d. T: %s, pos: %d",i,T,(int) pos);
-
-			bool isnull;
-			Datum arg = datumDeSerialize(&pos, &isnull);
-
-			jvalue val;
-			// Natives
-			if(strcmp(T, "I") == 0) {
-				val.i = (jint) DatumGetInt32(arg);
-			} else if(strcmp(T, "F") == 0) {
-				val.f = (jfloat) DatumGetFloat4(arg);
-			} else if(strcmp(T, "D") == 0) {
-				val.d = (jdouble) DatumGetFloat8(arg);
-			} else if(strcmp(T, "Z") == 0) {
-				val.z = (jboolean) DatumGetBool(arg);
-			} else if(strcmp(T, "J") == 0) {
-				val.j = (jlong) DatumGetInt64(arg);
-			}
-
-			// Arrays
-			else if(strcmp(T, "[J") == 0) {
-				ArrayType* v = DatumGetArrayTypeP(arg);
-				if(!ARR_HASNULL(v)) {
-					jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
-					jlongArray longArray = (*jenv)->NewLongArray(jenv,nElems);
-					(*jenv)->SetLongArrayRegion(jenv,longArray, 0, nElems, (jlong*)ARR_DATA_PTR(v));
-					val.l = longArray;
-				} else {
-					// Copy element by element 
-					//...
-				}
-			}
-			else if(strcmp(T, "[F") == 0) {
-				ArrayType* v = DatumGetArrayTypeP(arg);
-				if(!ARR_HASNULL(v)) {
-					jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
-					jfloatArray floatArray = (*jenv)->NewFloatArray(jenv,nElems);
-					(*jenv)->SetFloatArrayRegion(jenv,floatArray, 0, nElems, (jfloat *)ARR_DATA_PTR(v));
-					val.l = floatArray;
-				} else {
-					// Copy element by element 
-					//...
-
-				}
-			}
-			else if(strcmp(T, "[[F") == 0) {
-				// ToDo 
-			}
-			else if(strcmp(T, "[D") == 0) {
-				ArrayType* v = DatumGetArrayTypeP(arg);
-				if(!ARR_HASNULL(v)) {
-					jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
-					jdoubleArray doubleArray = (*jenv)->NewDoubleArray(jenv,nElems);
-					(*jenv)->SetDoubleArrayRegion(jenv,doubleArray, 0, nElems, (jdouble *)ARR_DATA_PTR(v));
-					val.l = doubleArray;
-				} else {
-					// Copy element by element 
-					//...
-				}
-			}
-			else if(strcmp(T, "[[D") == 0) {
-				ArrayType* v = DatumGetArrayTypeP(arg);
-				int nc = 0;
-				if(!ARR_HASNULL(v)) {
-					jclass cls = (*jenv)->FindClass(jenv,"[D");
-					jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0],cls,0);
-					
-					for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
-						// Create inner
-						jfloatArray innerArray = (*jenv)->NewDoubleArray(jenv,ARR_DIMS(v)[1]);
-						(*jenv)->SetDoubleArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jdouble *) (ARR_DATA_PTR(v) + nc*sizeof(double) ));
-						nc += ARR_DIMS(v)[1];
-						(*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
-						(*jenv)->DeleteLocalRef(jenv,innerArray);
-					}
-					
-					val.l = objectArray;
-
-				} else {
-					// Copy element by element 
-					//...
-				}
-				
-			}
-			// Other objects
-			else if(strcmp(T, "Ljava/lang/String;") == 0) {
-				text* txt = DatumGetTextP(arg);
-				int len = VARSIZE_ANY_EXHDR(txt)+1;
-				char t[len];
-				text_to_cstring_buffer(txt, &t, len);
-				val.l = (*jenv)->NewStringUTF(jenv, t);
-			}
-
-			args[i] = val;
-		}
-		*/
-	
+		
 		Datum values[entry->n_return];
 		bool primitive[entry->n_return];
 		memset(primitive, 0, sizeof(primitive));

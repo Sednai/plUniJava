@@ -1,6 +1,4 @@
- 
-
-package ai.sedn.moonshot;
+package ai.sedn.plunijava;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -143,21 +141,21 @@ public class Tests {
 		
 		ArrayList<TestType1> L = new ArrayList<TestType1>();
 		
-		Moonshot moonshot = new Moonshot();
+		PlUniJava unij = new PlUniJava();
 			
-	    moonshot.connect();
+	    unij.connect();
 	    
-	    moonshot.execute("select id,data from test_table1");
+	    unij.execute("select id,data from test_table1");
 	    
-	    while(moonshot.fetch_next()) {
+	    while(unij.fetch_next()) {
 			TestType1 R = new TestType1();
-	    	R.A = moonshot.getint(1);
-			R.B = moonshot.getdoublearray(2)[0];
+	    	R.A = unij.getint(1);
+			R.B = unij.getdoublearray(2)[0];
 	    	
 	    	L.add(R);
 	    }
 	    
-	    moonshot.disconnect();
+	    unij.disconnect();
 	
 		return L.listIterator();
 		

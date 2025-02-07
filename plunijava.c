@@ -15,9 +15,9 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
-#include "moonshot.h"
-#include "moonshot_jvm.h"
-#include "moonshot_spi.h"
+#include "plunijava.h"
+#include "plunijava_jvm.h"
+#include "plunijava_spi.h"
 
 #include "miscadmin.h"
 #include "pgstat.h"
@@ -269,235 +269,6 @@ Datum java_call_handler(PG_FUNCTION_ARGS)
     
     return ret;
 }
-
-
-
-PG_FUNCTION_INFO_V1(kmeans_gradients_cpu_float);
-Datum
-kmeans_gradients_cpu_float(PG_FUNCTION_ARGS) 
-{
-
-    char* class_name = "ai/sedn/unsupervised/Kmeans";
-    char* method_name = "kmeans_gradients_cpu_float_ms";
-    char* signature = "(Ljava/lang/String;Ljava/lang/String;IF[F)Lai/sedn/unsupervised/GradientReturn;";
-    char* return_type = "O";
-    
-    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, true, false, class_name, method_name, signature, return_type);
-
-    PG_RETURN_DATUM( ret );   
-}
-
-PG_FUNCTION_INFO_V1(kmeans_gradients_tvm_float);
-Datum
-kmeans_gradients_tvm_float(PG_FUNCTION_ARGS) 
-{
-
-    char* class_name = "ai/sedn/unsupervised/Kmeans";
-    char* method_name = "kmeans_gradients_tvm_float_ms";
-    char* signature = "(Ljava/lang/String;Ljava/lang/String;IFI[F)Lai/sedn/unsupervised/GradientReturn;";
-    char* return_type = "O";
-
-    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, true, false, class_name, method_name, signature, return_type);
-
-    PG_RETURN_DATUM( ret );  
-}
-
-/* <- NON BACKGROUND WORKER BASED ! 
-      ( UNKNOWN PROBLEM WITH SPI AND BACKGROUND WORKER ON COORDINATOR ! )
-*/
-PG_FUNCTION_INFO_V1(dbscan_batch);
-Datum
-dbscan_batch(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "ai/sedn/unsupervised/DBscan";
-    char* method_name = "dbscan_batch_ms";
-    char* signature = "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IFIJI)Lai/sedn/unsupervised/dbscan_batch_ret;";
-    char* return_type = "O";
-
-    Datum ret = control_fgworker(fcinfo, true, class_name, method_name, signature, return_type);
-
-    PG_RETURN_DATUM( ret );   
-}
-
-
-/*
-    Period search
-*/
-
-PG_FUNCTION_INFO_V1(psearch_ms_bg_cpu);
-Datum
-psearch_ms_bg_cpu(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
-    char* method_name = "DoPeriodSearchCPU";
-    
-    char* signature = "([Lgaia/cu7/algo/character/periodsearch/PeriodData;)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
-    char* return_type = "O";
-
-    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
-    
-    PG_RETURN_DATUM( ret );   
-}
-
-PG_FUNCTION_INFO_V1(psearch_ms_bg_gpu);
-Datum
-psearch_ms_bg_gpu(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
-    char* method_name = "DoPeriodSearchGPU";
-    
-    char* signature = "([Lgaia/cu7/algo/character/periodsearch/PeriodData;)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
-    char* return_type = "O";
-
-    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
-    
-    PG_RETURN_DATUM( ret );   
-}
-
-PG_FUNCTION_INFO_V1(psearch_ms_fg_cpu);
-Datum
-psearch_ms_fg_cpu(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
-    char* method_name = "DoPeriodSearchCPU";
-    
-    char* signature = "([Lgaia/cu7/algo/character/periodsearch/PeriodData;)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
-    char* return_type = "O";
-
-    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
-    
-    PG_RETURN_DATUM( ret );   
-}
-
-PG_FUNCTION_INFO_V1(psearch_ms_fg_gpu);
-Datum
-psearch_ms_fg_gpu(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
-    char* method_name = "DoPeriodSearchGPU";
-    
-    char* signature = "([Lgaia/cu7/algo/character/periodsearch/PeriodData;)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
-    char* return_type = "O";
-
-    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
-    
-    PG_RETURN_DATUM( ret );   
-}
-
-/* TESTING AREA */
-
-PG_FUNCTION_INFO_V1(etest_ms);
-Datum
-etest_ms(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "ai/sedn/unsupervised/Kmeans";
-    char* method_name = "etest";
-    
-    char* signature = "([B)Lai/sedn/unsupervised/TestReturn2;";
-    char* return_type = "O";
-
-    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
-    
-    PG_RETURN_DATUM( ret );   
-}
-
-PG_FUNCTION_INFO_V1(etest_bg_ms);
-Datum
-etest_bg_ms(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "ai/sedn/unsupervised/Kmeans";
-    char* method_name = "etest";
-    
-    char* signature = "([B)Lai/sedn/unsupervised/TestReturn2;";
-    char* return_type = "O";
-
-    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
-  
-    PG_RETURN_DATUM( ret );   
-}
-
-
-
-PG_FUNCTION_INFO_V1(astrots_ms);
-Datum
-astrots_ms(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "gaia/cu7/mapping/AstroTsSQL_native2d";
-    char* method_name = "astroTsReturn_ms";
-    
-    char* signature = "([B)Lgaia/cu7/mapping/AstroTsType;";
-    char* return_type = "O";
-
-    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
-    
-    PG_RETURN_DATUM( ret );   
-}
-
-PG_FUNCTION_INFO_V1(astrots_bg_ms);
-Datum
-astrots_bg_ms(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "gaia/cu7/mapping/AstroTsSQL_native2d";
-    char* method_name = "astroTsReturn_ms";
-    
-    char* signature = "([B)Lgaia/cu7/mapping/AstroTsType;";
-    char* return_type = "O";
-
-    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
-    
-    PG_RETURN_DATUM( ret );   
-}
-
-PG_FUNCTION_INFO_V1(bprpspectra_veri_ms);
-Datum
-bprpspectra_veri_ms(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "gaia/cu7/mapping/BpRpSpectraSQL_native2d";
-    char* method_name = "bprpspectraVerification_ms";
-    
-    char* signature = "([B)Z";
-    char* return_type = "Z";
-
-    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
-    
-    PG_RETURN_DATUM( ret );   
-}
-
-
-PG_FUNCTION_INFO_V1(bprpspectra_ms);
-Datum
-bprpspectra_ms(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "gaia/cu7/mapping/BpRpSpectraSQL_native2d";
-    char* method_name = "bprpspectraReturn_ms";
-    
-    char* signature = "([B)Lgaia/cu7/mapping/BpRpSpectraType;";
-    char* return_type = "O";
-
-    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
-    
-    PG_RETURN_DATUM( ret );   
-}
-
-PG_FUNCTION_INFO_V1(bprpspectra_bg_ms);
-Datum
-bprpspectra_bg_ms(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "gaia/cu7/mapping/BpRpSpectraSQL_native2d";
-    char* method_name = "bprpspectraReturn_ms";
-    
-    char* signature = "([B)Lgaia/cu7/mapping/BpRpSpectraType;";
-    char* return_type = "O";
-
-    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
-    
-    PG_RETURN_DATUM( ret );   
-}
-
-
-
-
-
 
 /*
     Main function to deliver tasks to bg workers and collect results
@@ -1480,15 +1251,15 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
 }
 
 
-PG_FUNCTION_INFO_V1(ms_clear_user_queue);
+PG_FUNCTION_INFO_V1(pluj_clear_user_queue);
 Datum
-ms_clear_user_queue(PG_FUNCTION_ARGS) {
+pluj_clear_user_queue(PG_FUNCTION_ARGS) {
     if(worker_head_user == NULL) {
         Oid			roleid = GetUserId();
 	    Oid			dbid = MyDatabaseId;
 	
         char buf[12];
-        snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
+        snprintf(buf, 12, "UJ_%d_%d", roleid, dbid); 
         
         LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
         bool found;
@@ -1519,16 +1290,16 @@ ms_clear_user_queue(PG_FUNCTION_ARGS) {
     PG_RETURN_INT32(c);
 }
 
-PG_FUNCTION_INFO_V1(ms_show_user_queue);
+PG_FUNCTION_INFO_V1(pluj_show_user_queue);
 Datum
-ms_show_user_queue(PG_FUNCTION_ARGS) {
+pluj_show_user_queue(PG_FUNCTION_ARGS) {
     
     if(worker_head_user == NULL) {
         Oid			roleid = GetUserId();
 	    Oid			dbid = MyDatabaseId;
 	
         char buf[12];
-        snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
+        snprintf(buf, 12, "UJ_%d_%d", roleid, dbid); 
         
         LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
         bool found;
@@ -1560,15 +1331,15 @@ ms_show_user_queue(PG_FUNCTION_ARGS) {
     PG_RETURN_INT32(c);
 }
 
-PG_FUNCTION_INFO_V1(ms_kill_user_workers);
+PG_FUNCTION_INFO_V1(pluj_kill_user_workers);
 Datum
-ms_kill_user_workers(PG_FUNCTION_ARGS) {
+pluj_kill_user_workers(PG_FUNCTION_ARGS) {
    
     Oid			roleid = GetUserId();
     Oid			dbid = MyDatabaseId;
 
     char buf[BGW_MAXLEN];
-    snprintf(buf, BGW_MAXLEN, "MW_%d_%d", roleid, dbid); 
+    snprintf(buf, BGW_MAXLEN, "UJ_%d_%d", roleid, dbid); 
     
     LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
     bool found;
@@ -1601,13 +1372,13 @@ ms_kill_user_workers(PG_FUNCTION_ARGS) {
     PG_RETURN_INT32(ret);
 }
 
-PG_FUNCTION_INFO_V1(ms_kill_global_workers);
+PG_FUNCTION_INFO_V1(pluj_kill_global_workers);
 Datum
-ms_kill_global_workers(PG_FUNCTION_ARGS) {
+pluj_kill_global_workers(PG_FUNCTION_ARGS) {
    
     // Get global data structure
     char buf[BGW_MAXLEN];
-    snprintf(buf, BGW_MAXLEN, "MW_global"); 
+    snprintf(buf, BGW_MAXLEN, "UJ_global"); 
         
     LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
     bool found;
@@ -1706,39 +1477,3 @@ void GetNAttributes(HeapTupleHeader tuple,
     ReleaseTupleDesc(tupDesc);
 }
 
-
-/*
-
-    EXPERIMENTAL
-
-*/
-PG_FUNCTION_INFO_V1(atest);
-Datum
-atest(PG_FUNCTION_ARGS) {
-
-    // Call java function
-    char* class_name = "ai/sedn/unsupervised/Kmeans";
-    char* method_name = "atest";
-    char* signature = "([Lai/sedn/unsupervised/TestReturn;)I";
-    elog(NOTICE,"A");
-    //Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, "I");
-    Datum ret = control_bgworkers(fcinfo, 1, false, false, class_name, method_name, signature, "I");
-    
-    elog(NOTICE,"B");
-
-    PG_RETURN_DATUM( ret );      
-}
-
-PG_FUNCTION_INFO_V1(rtest);
-Datum
-rtest(PG_FUNCTION_ARGS) {
- 
-    // Call java function
-    char* class_name = "ai/sedn/unsupervised/Kmeans";
-    char* method_name = "rtest";
-    char* signature = "()Ljava/util/Iterator;";
-
-    control_fgworker(fcinfo, true, class_name, method_name, signature, "O");
-
-    PG_RETURN_NULL();
-}

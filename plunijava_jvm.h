@@ -1,5 +1,5 @@
-#ifndef MOONSHOT_JVM_H
-#define MOONSHOT_JVM_H
+#ifndef PLUNIJAVA_JVM_H
+#define PLUNIJAVA_JVM_H
 
 #include <jni.h>
 #include "utils/tuplestore.h"

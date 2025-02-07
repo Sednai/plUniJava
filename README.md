@@ -13,7 +13,7 @@
 
 ## Configuration & Installation
 
-The operation mode as background process is implemented via shared memory and a task queue. The number of background JVM workers, queue size and data capacity is hard-coded in `moonshot_worker.h` via the following defines:
+The operation mode as background process is implemented via shared memory and a task queue. The number of background JVM workers, queue size and data capacity is hard-coded in `plunijava_worker.h` via the following defines:
 
 ```C
 #define MAX_USERS 1+1
@@ -30,20 +30,20 @@ make install
 
 Java settings can be set in `postgres.conf` via the following options:
 ```
-ms.libjvm = '/jdk-path/lib/server/libjvm.so'
-ms.jvmoptions = '-Djava.class.path=' 
+pluj.libjvm = '/jdk-path/lib/server/libjvm.so'
+pluj.jvmoptions = '-Djava.class.path=' 
 ```
-Note that only JNI compatible Java options are supported. Additional settings can be read from external files by adding `@filename` options to `ms.jvmoptions`. 
+Note that only JNI compatible Java options are supported. Additional settings can be read from external files by adding `@filename` options to `pluj.jvmoptions`. 
 
 In postgres, execute
 ```SQL
-CREATE EXTENSION MOONSHOT;
+CREATE EXTENSION PLUNIJAVA;
 ```
 
 ## Usage
-The PG language handler is installed as `MSJAVA`. Functions using the handler can be created as follows:
+The PG language handler is installed as `UJAVA`. Functions using the handler can be created as follows:
 ```
-create function funcname(arguments) returns returntype as 'type_code|full_class_path_and_name|method_name|jni_signature' LANGUAGE MSJAVA;
+create function funcname(arguments) returns returntype as 'type_code|full_class_path_and_name|method_name|jni_signature' LANGUAGE UJAVA;
 ```
 Here, `type_code` can be either
 ```
@@ -82,7 +82,7 @@ Postgres:
 
 ```SQL
 create type complexreturn as (a int, b float8[]);
-create function func_test(int, float8) returns complexreturn as 'F|my/classpath/my_functions|func_test' LANGUAGE MSJAVA;
+create function func_test(int, float8) returns complexreturn as 'F|my/classpath/my_functions|func_test' LANGUAGE UJAVA;
 ```
 
 Currently, only the foreground worker supports `SETOF` return. For this, the java function has to return an `iterator` of a complex type.  
@@ -108,32 +108,32 @@ public static Iterator iter_test() {
 
 ## Java API
 
-The Non-JDBC API can only be invoked in foreground mode or in a user based background worker. Build the jar in the `java/` directory with `mvn` and load onto the classpath. The API requires Java 21 and the JVM flags `--enable-preview --enable-native-access=moonshot`
+The Non-JDBC API can only be invoked in foreground mode or in a user based background worker. Build the jar in the `java/` directory with `mvn` and load onto the module path. The API requires Java 21 and the JVM flags `--module-path=.:/pathto/plUniJava-0.0.1-SNAPSHOT.jar --enable-preview --enable-native-access=plunijava --add-modules=ALL-SYSTEM,plunijava`
 
 **Example**
 
 ```Java
-Moonshot moonshot = new Moonshot();
+PlUniJava unij = new PlUniJava();
 		
 try {
 
-    moonshot.connect();
+    unij.connect();
     
-    moonshot.execute("select colname from tablename");
+    unij.execute("select colname from tablename");
     
     double[] array;
-    while(moonshot.fetch_next()) {
-        array = moonshot.getdoublearray(1);
+    while(unij.fetch_next()) {
+        array = unij.getdoublearray(1);
 	}
 		     
-    moonshot.disconnect();
+    unij.disconnect();
     
 } catch(Throwable t) {
 
 }
 ```
 
-For more examples, see `moonshot-test.sql` and `Tests.java`.
+For more examples, see `plunijava--test.sql` and `Tests.java`.
 
 
 ## Important remarks

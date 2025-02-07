@@ -1,7 +1,5 @@
-
-module moonshot {
-	exports ai.sedn.moonshot;
+module plunijava {
+	exports ai.sedn.plunijava;
 
 	requires java.sql;
-
 }
