@@ -133,7 +133,7 @@ try {
 }
 ```
 
-For more examples, see `plunijava-test.sql` and `Tests.java`.
+For more examples, see `plunijava--test.sql` and `Tests.java`.
 
 
 ## Important remarks
