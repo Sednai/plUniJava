@@ -67,6 +67,15 @@ SELECT f_test_double4('{{1.23,2.2,3.,4.23,5.2},{5.6,4.45,3.3434,2.3,1.3}}');
 SELECT b_test_double4('{{6.,5.34,4.1,3.434,2.4,1.23},{1.75,2.354,3.34,4.2,5.4,6.64}}');
 SELECT g_test_double4('{{1.1,2.24,2.232,1.1},{1.4,2.23,2.65,1.676}}');
 
+--string
+CREATE OR REPLACE FUNCTION f_test_string1(text) RETURNS text AS 'F|ai/sedn/plunijava/Tests|test_string1|(Ljava/lang/String;)Ljava/lang/String;' LANGUAGE UJAVA;
+
+SELECT f_test_string1('HELLO WORLD!');
+
+CREATE OR REPLACE FUNCTION f_test_string2(text[]) RETURNS text AS 'F|ai/sedn/plunijava/Tests|test_string2|([Ljava/lang/String;)Ljava/lang/String;' LANGUAGE UJAVA;
+
+SELECT f_test_string2(ARRAY['1. HELLO WORLD!','2. HELLO WORLD!']);
+
 --complex types
 CREATE TYPE TESTTYPE1 as (A int, B float8);
 
@@ -86,6 +95,12 @@ SELECT f_test_complextype2(ARRAY[(1,0.1)::TESTTYPE1]);
 SELECT b_test_complextype2(ARRAY[(2,0.2)::TESTTYPE1]);
 SELECT g_test_complextype2(ARRAY[(3,0.3)::TESTTYPE1]);
 
+CREATE TYPE TESTTYPE2 as (A text);
+CREATE OR REPLACE FUNCTION f_test_complextype3(TESTTYPE2) RETURNS TESTTYPE2 AS 'F|ai/sedn/plunijava/Tests|test_complextype3|(Lai/sedn/plunijava/TestType2;)Lai/sedn/plunijava/TestType2;' LANGUAGE UJAVA;
+
+SELECT f_test_complextype3('("HELLO WORLD!")'::TESTTYPE2);
+
+
 --setof
 CREATE OR REPLACE FUNCTION f_test_setof1(TESTTYPE1[]) RETURNS SETOF TESTTYPE1 AS 'F|ai/sedn/plunijava/Tests|test_setof1|([Lai/sedn/plunijava/TestType1;)Ljava/util/Iterator;' LANGUAGE UJAVA;
 
@@ -102,4 +117,5 @@ SELECT f_test_njdbc1();
 --Cleanup
 DROP TABLE test_table1;
 DROP TYPE TESTTYPE1 CASCADE;
+DROP TYPE TESTTYPE2 CASCADE;
 DROP EXTENSION PLUNIJAVA CASCADE;

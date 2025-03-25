@@ -28,7 +28,12 @@ For installation, execute
 make install
 ```
 
-Java settings can be set in `postgres.conf` via the following options:
+Pre-load the library via adding to `postgresql.conf`:
+```
+shared_preload_libraries = '$libdir/plunijava'
+```
+
+Java settings can be set via the following options:
 ```
 pluj.libjvm = '/jdk-path/lib/server/libjvm.so'
 pluj.jvmoptions = '-Djava.class.path=' 

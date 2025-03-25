@@ -98,6 +98,17 @@ public class Tests {
 	}
 	
 	/*
+	 * String
+	 */
+	public static String test_string1(String in) throws SQLException {
+		return in;
+	}
+	
+	public static String test_string2(String[] in) throws SQLException {
+		return in[0];
+	}
+	
+	/*
 	 * Complex types
 	 */
 	public static TestType1 test_complextype1(int in1, double in2) {
@@ -118,6 +129,13 @@ public class Tests {
 		return R;
 	}
 	
+	public static TestType2 test_complextype3(TestType2 in) {
+		TestType2 R = new TestType2();
+		R.A = in.A;
+
+		return R;
+	}
+
 	/*
 	 * Setof return
 	 */

@@ -72,6 +72,8 @@ void sub_timespec(struct timespec t1, struct timespec t2, struct timespec *td)
 
 static char* pgtype_to_java(Oid type) {
     switch(type) {
+        case VOIDOID:
+            return "V";
         case BYTEAOID:
             return "[B";
         case BOOLOID:
@@ -101,7 +103,6 @@ static Datum java_func_handler(PG_FUNCTION_ARGS)
     bool found;
     MemoryContext oldctx;
     Oid fid = fcinfo->flinfo->fn_oid;
-
     //elog(WARNING,"[DEBUG]: Entry java function handler");
 
     if(function_hash == NULL) {
@@ -225,6 +226,7 @@ static Datum java_func_handler(PG_FUNCTION_ARGS)
     //elog(WARNING,"mode: %s",centry->mode);
     //elog(WARNING,"class: %s",centry->class_name);
     //elog(WARNING,"sig: %s",centry->signature);
+    //elog(WARNING,"ret: %s",centry->return_type);
     
     Datum retr;
     if(centry->mode[0] == 'F') {
@@ -667,6 +669,7 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
             elog(ERROR,"%s",error_msg);
         }
     }
+    
     // Prep arguments
     jvalue args[fcinfo->nargs];
     short argprim[fcinfo->nargs];
@@ -691,13 +694,13 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
         bool* nulls = palloc0( natts * sizeof( bool ) );
         bool primitive[natts];
         memset(primitive, 0, sizeof(primitive));
-       // elog(WARNING,"[DEBUG] %s",return_type);
+        //elog(WARNING,"[DEBUG] %s",return_type);
         jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args, error_msg);
     
         if(jfr == 0) {     
             if(need_SPI) disconnect_SPI();
             PopActiveSnapshot();
-            if(tupdesc != NULL && natts > 1) {
+            if(tupdesc != NULL && natts > 0) {
                 HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
                 pfree(nulls);
                 freejvalues(args, argprim, fcinfo->nargs);
@@ -705,6 +708,10 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
             } else {
                 pfree(nulls);
                 freejvalues(args, argprim, fcinfo->nargs);
+                
+                if(return_type[0] == 'V')
+                    PG_RETURN_VOID();
+                
                 PG_RETURN_DATUM( values[0] );
             }
         } else {
@@ -779,7 +786,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
     int ac = 0;
     char buf[256];
     int pos = 0;
-    
+   
     // Loop over signature and detect arguments
     for(int i = 0; i < strlen(signature); i++) {
         
@@ -808,7 +815,6 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
             }     
             
             if ( openo ) {
-                
                 if(signature[i] != ';') {
                     // Buffer 
                     buf[pos] = signature[i];
@@ -817,7 +823,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                     // Serialize object argument
                     buf[pos] = ';';
                     buf[pos+1] = '\0';
-
+                    
                     if(strcmp("Ljava/lang/String;",buf) == 0) {
                         target[ac] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(ac) ));
                         argprim[ac] = 2;
@@ -833,7 +839,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                         jmethodID getFields = (*jenv)->GetMethodID(jenv, (*jenv)->GetObjectClass(jenv,cls), "getFields", "()[Ljava/lang/reflect/Field;");
                         jobjectArray fieldsList = (jobjectArray)  (*jenv)->CallObjectMethod(jenv, cls, getFields);    
                         jsize len =  (*jenv)->GetArrayLength(jenv,fieldsList);
-                    
+                                  
                         if(len == 0) {
                             elog(ERROR,"Java class %s has no fields",buf);
                         } else {
@@ -841,7 +847,8 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                             jmethodID constructor = (*jenv)->GetMethodID(jenv, cls, "<init>", "()V");
                             jobject cobj = (*jenv)->NewObject(jenv, cls, constructor);
                                  
-                            TupleTableSlot  *t = (TupleTableSlot *) PG_GETARG_POINTER(ac);
+                            //TupleTableSlot  *t = (TupleTableSlot *) PG_GETARG_POINTER(ac);
+                            HeapTupleHeader t = DatumGetHeapTupleHeader(PG_GETARG_DATUM(ac) );
                             bool isnull;
 
                             // Loop over class fields                            
@@ -875,6 +882,11 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                 }
                                
                                 jfieldID fid = (*jenv)->GetFieldID(jenv, cls, fieldname, sig);
+
+                                // Convert fieldname to lower case for PG lookup
+                                for(int k = 0; k < strlen(fieldname); k++) {
+                                    fieldname[k] = tolower(fieldname[k]);
+                                } 
 
                                 Datum attr = GetAttributeByName(t, fieldname, &isnull); // Note: By num should be faster
                                 if(isnull) {
@@ -1086,122 +1098,165 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                             }
                             if(signature[i] == ';') {
                                 cbuf[c] = ';';
-                                cbuf[c+1] = '\0';
+                                cbuf[c+1] = '\0';    
                                 
-                                // Build composite type                              
-                                jclass cls = (*jenv)->FindClass(jenv, cbuf);
-                                if(cls == NULL) {
-                                    elog(ERROR,"Java class %s not known",cbuf);
-                                }
-                               
-                                // Get field info
-                                jmethodID getFields = (*jenv)->GetMethodID(jenv, (*jenv)->GetObjectClass(jenv,cls), "getFields", "()[Ljava/lang/reflect/Field;");
-                                jobjectArray fieldsList = (jobjectArray)  (*jenv)->CallObjectMethod(jenv, cls, getFields);    
-                                jsize len =  (*jenv)->GetArrayLength(jenv,fieldsList);
-                            
-                                if(len == 0) {
-                                    elog(ERROR,"Java class %s has no fields",cbuf);
-                                }
-                                
-                                char* sig[len];
-                                char* fieldname[len];
-                                char* typename[len];
-                                jstring jstr[len];
-                                jstring jstr2[len];
-                                jfieldID fid[len];
-
-                                // Loop over class fields to prepare                             
-                                for(int j = 0; j < len; j++) {
-                                   
-                                    // Detect field
-                                    jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, j);
-                                    jclass fieldClass = (*jenv)->GetObjectClass(jenv, field);
-                                        
-                                    // Obtain signature
-                                    jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
-                                    jstr[j] = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
-                                
-                                    fieldname[j] =  (*jenv)->GetStringUTFChars(jenv, jstr[j], false);
-                                
-                                    m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
-                                    jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
-                                    jclass  valueClass = (*jenv)->GetObjectClass(jenv, value);
-
-                                    m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
-                                    jstr2[j] = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
-                                    typename[j] =  (*jenv)->GetStringUTFChars(jenv, jstr2[j], false);
-
-                                    char error_msg[128];
-                                    sig[j] = convert_name_to_JNI_signature(typename[j], error_msg);
+                                if(strcmp(cbuf, "Ljava/lang/String;") == 0) {
+                                    // String array
+                                    v = DatumGetArrayTypeP( PG_GETARG_DATUM(ac) );       
+                                      
+                                    switch(pos) {
                                     
-                                    if(sig[j] == NULL) {
-                                        elog(ERROR,"%s",error_msg);   
+                                        case 1:
+                                            if(!ARR_HASNULL(v)) {
+                                                jclass cls = (*jenv)->FindClass(jenv,"Ljava/lang/String;");
+                                                jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0], cls, 0);
+                                        
+                                                for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
+                                                                                       
+                                                    text* txt = DatumGetTextP( ARR_DATA_PTR(v) );
+                                                
+                                                    int len = VARSIZE_ANY_EXHDR(txt)+1;
+                                                    char t[len];
+                                                
+                                                    text_to_cstring_buffer(txt, &t, len);
+                                                
+                                                    jstring string = (*jenv)->NewStringUTF(jenv, t);
+                                                 
+                                                    (*jenv)->SetObjectArrayElement(jenv, objectArray, idx, string);
+                                                    // Memory leak ?
+                                                }
+                                        
+                                                target[ac].l = objectArray;
+                                                argprim[ac] = 1;
+                                                //elog(ERROR,"String array argument not implemented yet");
+                                            } else {
+                                                elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");
+                                            }
+                                            
+                                            break;
+                                        
+                                        default:
+                                            elog(ERROR,"Higher dimensional array as argument not implemented yet for foreground Java worker");   
+                                    }
+
+                                } else {
+                                    // Build composite type                              
+                                    jclass cls = (*jenv)->FindClass(jenv, cbuf);
+                                    if(cls == NULL) {
+                                        elog(ERROR,"Java class %s not known",cbuf);
                                     }
                                 
-                                    fid[j] = (*jenv)->GetFieldID(jenv, cls, fieldname[j], sig[j]);
-
-                                    // Convert fieldname to lower case for PG lookup
-                                    for(int k = 0; k < strlen(fieldname[k]); k++) {
-                                        fieldname[j][k] = tolower(fieldname[j][k]);
-                                    } 
-                                }
-
-                                // Get array
-                                v = PG_GETARG_ARRAYTYPE_P(ac);
-                                Oid elemType = ARR_ELEMTYPE(v);
-                                Datum  *datums;
-                                bool   *nulls;
-                                int     N;
-                                int16   elemWidth;
-                                bool    elemTypeByVal, isNull;
-                                char    elemAlignmentCode;
-                                                            
-                                get_typlenbyvalalign(elemType, &elemWidth, &elemTypeByVal, &elemAlignmentCode);
-                                deconstruct_array(v, elemType, elemWidth, elemTypeByVal, elemAlignmentCode, &datums, &nulls, &N);
+                                    // Get field info
+                                    jmethodID getFields = (*jenv)->GetMethodID(jenv, (*jenv)->GetObjectClass(jenv,cls), "getFields", "()[Ljava/lang/reflect/Field;");
+                                    jobjectArray fieldsList = (jobjectArray)  (*jenv)->CallObjectMethod(jenv, cls, getFields);    
+                                    jsize len =  (*jenv)->GetArrayLength(jenv,fieldsList);
                                 
-                                // Create array
-                                jobjectArray array = (*jenv)->NewObjectArray(jenv,N,cls,0);
-                                
-                                jmethodID constructor = (*jenv)->GetMethodID(jenv, cls, "<init>", "()V");
-                                       
-                                // Loop over array elements
-                                for (int n = 0; n < N; n++)
-                                {
-                                    if (!nulls[n]) {
-                                        // Construct new instance
-                                        jobject cobj = (*jenv)->NewObject(jenv, cls, constructor);
-                        
-                                        // Prepare elements
-                                        HeapTupleHeader t = DatumGetHeapTupleHeader(datums[n]);
-                                        
-                                        // Loop over class fields                            
-                                        for(int j = 0; j < len; j++) {
-                                            bool isnull;
-                                            Datum attr = GetAttributeByName(t, fieldname[j], &isnull); // Note: By num should be faster
-                                            if(isnull) {
-                                                elog(ERROR,"No attribute %s in supplied composite argument",fieldname[j]);
-                                            }
-                                            int res = set_jobject_field_from_datum(&cobj, &fid[j], &attr, sig[j]); 
+                                    if(len == 0) {
+                                        elog(ERROR,"Java class %s has no fields",cbuf);
+                                    }
+                                    
+                                    char* sig[len];
+                                    char* fieldname[len];
+                                    char* typename[len];
+                                    jstring jstr[len];
+                                    jstring jstr2[len];
+                                    jfieldID fid[len];
+
+                                    // Loop over class fields to prepare                             
+                                    for(int j = 0; j < len; j++) {
+                                    
+                                        // Detect field
+                                        jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, j);
+                                        jclass fieldClass = (*jenv)->GetObjectClass(jenv, field);
                                             
-                                            //elog(NOTICE,"-> %s (%s)", fieldname[j], sig[j]);
-                                          
-                                            if(res != 0) {                                
-                                                elog(ERROR,"Unknown error in setting composite type");
-                                            }
+                                        // Obtain signature
+                                        jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
+                                        jstr[j] = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
+                                    
+                                        fieldname[j] =  (*jenv)->GetStringUTFChars(jenv, jstr[j], false);
+                                    
+                                        m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
+                                        jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
+                                        jclass  valueClass = (*jenv)->GetObjectClass(jenv, value);
+
+                                        m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
+                                        jstr2[j] = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
+                                        typename[j] =  (*jenv)->GetStringUTFChars(jenv, jstr2[j], false);
+
+                                        char error_msg[128];
+                                        sig[j] = convert_name_to_JNI_signature(typename[j], error_msg);
+                                        
+                                        if(sig[j] == NULL) {
+                                            elog(ERROR,"%s",error_msg);   
                                         }
                                     
-                                        (*jenv)->SetObjectArrayElement(jenv, array, n, cobj);
-                                        (*jenv)->DeleteLocalRef(jenv,cobj);
-                                    } 
-                                }
-                                         
-                                target[ac].l = array;
-                                argprim[ac] = 1;
-                                
-                                // Cleanup
-                                for(int j = 0; i < len; j++) {
-                                    (*jenv)->ReleaseStringUTFChars(jenv, jstr2[j], typename[j]);
-                                    (*jenv)->ReleaseStringUTFChars(jenv, jstr[j], fieldname[j]);
+                                        fid[j] = (*jenv)->GetFieldID(jenv, cls, fieldname[j], sig[j]);
+
+                                        // Convert fieldname to lower case for PG lookup
+                                        for(int k = 0; k < strlen(fieldname[j]); k++) {
+                                            fieldname[j][k] = tolower(fieldname[j][k]);
+                                        } 
+                                    }
+
+                                    // Get array
+                                    v = PG_GETARG_ARRAYTYPE_P(ac);
+                                    Oid elemType = ARR_ELEMTYPE(v);
+                                    Datum  *datums;
+                                    bool   *nulls;
+                                    int     N;
+                                    int16   elemWidth;
+                                    bool    elemTypeByVal, isNull;
+                                    char    elemAlignmentCode;
+                                                                
+                                    get_typlenbyvalalign(elemType, &elemWidth, &elemTypeByVal, &elemAlignmentCode);
+                                    deconstruct_array(v, elemType, elemWidth, elemTypeByVal, elemAlignmentCode, &datums, &nulls, &N);
+                                    
+                                    // Create array
+                                    jobjectArray array = (*jenv)->NewObjectArray(jenv,N,cls,0);
+                                    
+                                    jmethodID constructor = (*jenv)->GetMethodID(jenv, cls, "<init>", "()V");
+                                        
+                                    // Loop over array elements
+                                    for (int n = 0; n < N; n++)
+                                    {
+                                        if (!nulls[n]) {
+                                            // Construct new instance
+                                            jobject cobj = (*jenv)->NewObject(jenv, cls, constructor);
+                            
+                                            // Prepare elements
+                                            HeapTupleHeader t = DatumGetHeapTupleHeader(datums[n]);
+                                            
+                                            // Loop over class fields                            
+                                            for(int j = 0; j < len; j++) {
+                                                bool isnull;
+                                                Datum attr = GetAttributeByName(t, fieldname[j], &isnull); // Note: By num should be faster
+                                                if(isnull) {
+                                                    elog(ERROR,"No attribute %s in supplied composite argument",fieldname[j]);
+                                                }
+                                                
+                                                //elog(WARNING,"-> %s (%s)", fieldname[j], sig[j]);
+                                            
+                                                int res = set_jobject_field_from_datum(&cobj, &fid[j], &attr, sig[j]); 
+                                                
+                                                if(res != 0) {                                
+                                                    elog(ERROR,"Unknown error in setting composite type");
+                                                }
+                                            }
+                                        
+                                            (*jenv)->SetObjectArrayElement(jenv, array, n, cobj);
+                                            (*jenv)->DeleteLocalRef(jenv,cobj);
+                                        } 
+                                    }
+                                            
+                                    target[ac].l = array;
+                                    argprim[ac] = 1;
+                                    
+                                    // Cleanup
+                                    for(int j = 0; i < len; j++) {
+                                        (*jenv)->ReleaseStringUTFChars(jenv, jstr2[j], typename[j]);
+                                        (*jenv)->ReleaseStringUTFChars(jenv, jstr[j], fieldname[j]);
+                                    }
+
                                 }
 
                             } else {

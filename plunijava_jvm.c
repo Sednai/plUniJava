@@ -25,6 +25,7 @@ char* convert_name_to_JNI_signature(char* name, char* error_msg) {
                 case 'S':
                 case 'F':
                 case 'D':
+                case 'L':
                     return name;
             }
         } else {
@@ -34,6 +35,7 @@ char* convert_name_to_JNI_signature(char* name, char* error_msg) {
                 case 'S':
                 case 'F':
                 case 'D':
+                case 'L':
                     return name;
             }
         }
@@ -47,6 +49,9 @@ char* convert_name_to_JNI_signature(char* name, char* error_msg) {
             return "F";
         } else if (strcmp(name, "long") == 0) {
             return "J";
+        // Objects
+        } else if (strcmp(name, "java.lang.String") == 0 ) {
+            return "Ljava/lang/String;";
         }
     }
     
@@ -120,10 +125,10 @@ ArrayType* create2dArray(jsize dim1, jsize dim2, size_t elemSize, Oid elemType, 
 }
 
 int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* sig) {
-                                
     if(sig[0] != '[') {
-        // Natives
+        
         switch(sig[0]) {
+            // Natives
             case 'Z':       
                (*jenv)->SetBooleanField(jenv, *obj , *fid, DatumGetBool( *dat ) );
                 return 0;
@@ -142,6 +147,24 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
             case 'F':       
                (*jenv)->SetFloatField(jenv, *obj , *fid, DatumGetFloat4( *dat ) );
                 return 0;
+            // String
+            case 'L':
+                if(strcmp(sig,"Ljava/lang/String;") == 0) {
+                    
+                    text* txt = DatumGetTextP( *dat );                            
+                    int len = VARSIZE_ANY_EXHDR(txt)+1;
+                    char t[len];
+                
+                    text_to_cstring_buffer(txt, &t, len);
+                    
+                    jstring string = (*jenv)->NewStringUTF(jenv, t);
+                    
+                    (*jenv)->SetObjectField(jenv, *obj , *fid, string);
+                    
+                    // Memory leak ?
+                    
+                    return 0;
+                }          
         }
     } else {
         if(sig[1] != '[') {
@@ -153,7 +176,7 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
                     jsize  nElems = VARSIZE(bytes) - sizeof(int32);
                     jbyteArray byteArray  =(*jenv)->NewByteArray(jenv,nElems);
                     (*jenv)->SetByteArrayRegion(jenv, byteArray, 0, nElems, (jbyte*)VARDATA(bytes));
-                    (*jenv)->SetObjectField(jenv, *obj ,*fid, byteArray );
+                    (*jenv)->SetObjectField(jenv, *obj , *fid, byteArray );
                     return 0;                              
                 case 'D':
                     v = DatumGetArrayTypeP( *dat );
@@ -161,7 +184,7 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
                         jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
                         jdoubleArray doubleArray = (*jenv)->NewDoubleArray(jenv,nElems);
                         (*jenv)->SetDoubleArrayRegion(jenv, doubleArray, 0, nElems, (jdouble *)ARR_DATA_PTR(v));
-                        (*jenv)->SetObjectField(jenv, *obj ,*fid, doubleArray );
+                        (*jenv)->SetObjectField(jenv, *obj , *fid, doubleArray );
                         return 0;
                     } else {
                         // Copy element by element 
@@ -175,7 +198,7 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
                         jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
                         jfloatArray floatArray = (*jenv)->NewFloatArray(jenv,nElems);
                         (*jenv)->SetFloatArrayRegion(jenv, floatArray, 0, nElems, (jfloat *)ARR_DATA_PTR(v));
-                        (*jenv)->SetObjectField(jenv, *obj ,*fid, floatArray );
+                        (*jenv)->SetObjectField(jenv, *obj , *fid, floatArray );
                         return 0;
                     } else {
                         // Copy element by element 
@@ -193,7 +216,6 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
 
 Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, char* fieldname, char* sig, char* error_msg) {
     jfieldID fid = (*jenv)->GetFieldID(jenv,cls,fieldname,sig);       
-  
     if(sig[0] != '[') {
         // Natives
         *primitive = true;
@@ -208,6 +230,19 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                 return Float8GetDatum(  (*jenv)->GetDoubleField(jenv,data,fid) );
             case 'Z':
                 return BoolGetDatum( (*jenv)->GetBooleanField(jenv,data,fid) );
+            case 'L':
+                *primitive = false;
+                jstring string = (*jenv)->GetObjectField(jenv,data,fid);
+                char *nativeString = (*jenv)->GetStringUTFChars(jenv, string, 0);
+                
+                int len = strlen(nativeString);
+                text       *result = (text *) palloc(len + VARHDRSZ);
+                SET_VARSIZE(result, len + VARHDRSZ);
+                memcpy(VARDATA(result), nativeString, len);
+
+                (*jenv)->ReleaseStringUTFChars(jenv, string, nativeString);
+
+                return PointerGetDatum( result );
         }
     } else {
         // Native arrays
@@ -481,6 +516,16 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
     
         return 0;
 
+    } else if(strcmp(return_type, "V") == 0) {
+        (*jenv)->CallStaticVoidMethodA(jenv, clazz, methodID, args);
+        
+        // Catch exception
+        if( (*jenv)->ExceptionCheck(jenv) ) {
+            return 1;
+        }
+
+        return 0;
+
     } else if(strcmp(return_type, "Ljava/lang/String;") == 0) {
         jobject ret = (*jenv)->CallStaticObjectMethodA(jenv, clazz, methodID, args);
      
@@ -494,14 +539,16 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
             return -3;
         }
         
-        //char* str =  (*jenv)->GetStringUTFChars(jenv, ret, false);
+        char* str =  (*jenv)->GetStringUTFChars(jenv, ret, false);
         
-        //values[0] = (Datum) cstring_to_text_with_len("BLA",3);
-        //elog(WARNING,"[DEBUG]: %s", str);
-        
-        //(*jenv)->ReleaseStringUTFChars(jenv, ret, str);
-        
-        elog(ERROR,"String return not implemented yet");
+        int len = strlen(str);
+        text       *result = (text *) palloc(len + VARHDRSZ);
+        SET_VARSIZE(result, len + VARHDRSZ);
+        memcpy(VARDATA(result), str, len);
+
+        (*jenv)->ReleaseStringUTFChars(jenv, ret, str);
+
+        values[0] = (Datum) result; 
         
         return 0;
 
