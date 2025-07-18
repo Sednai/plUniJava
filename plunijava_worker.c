@@ -24,13 +24,22 @@
 #include <dlfcn.h>
 #include "utils/snapmgr.h"
 #include "math.h"
+#include "utils/datum.h"
+#include "access/xact.h"
+#include "utils/builtins.h"
 
 bool got_signal = false;
 int worker_id;
 
 static worker_data_head *worker_head = NULL;
 
+void sigTermHandler(SIGNAL_ARGS);
+void plunijava_worker_main(Datum main_arg);
+int argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry);
+
 #ifndef PGXC
+void		_PG_init(void);
+
 /* hook */
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
 static void pluj_shmem_request(void);
@@ -64,9 +73,13 @@ pluj_shmem_request(void)
 worker_data_head*
 launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 {
+	const char* WORKER_LIB = "$libdir/plunijava.so";
+
 	Oid			roleid = GetUserId();
 	Oid			dbid = MyDatabaseId;
 	
+	bool found = false;
+    
     char buf[BGW_MAXLEN];
 	if(!globalWorker) {
 		snprintf(buf, BGW_MAXLEN, "UJ_%d_%d", roleid, dbid); 
@@ -76,8 +89,8 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 
 	/* initialize worker data header */
 	LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
-    bool found = false;
-    worker_head = (worker_data_head*) ShmemInitStruct(buf,
+    
+	worker_head = (worker_data_head*) ShmemInitStruct(buf,
 								   sizeof(worker_data_head),
 								   &found);
 	LWLockRelease(AddinShmemInitLock);
@@ -111,9 +124,7 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
 		worker.bgw_restart_time = BGW_NEVER_RESTART; // Time in s to restart if crash. Use BGW_NEVER_RESTART for no restart;
 		
-		char* WORKER_LIB = "$libdir/plunijava.so";
-
-		sprintf(worker.bgw_library_name, WORKER_LIB);
+		strcpy(worker.bgw_library_name, WORKER_LIB);
 		sprintf(worker.bgw_function_name, "plunijava_worker_main");
 		
 		snprintf(worker.bgw_name, BGW_MAXLEN, "%s",buf);
@@ -166,12 +177,12 @@ int
 argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 	char* pos = entry->data;
 	for(int i = 0; i < entry->n_args; i++) {
-		
+		bool isnull;
 		char* T = pos;
+
 		pos += strlen(T)+1;
 		//elog(WARNING,"%d. T: %s, pos: %d",i,T,(int) pos);
 
-		bool isnull;
 		
 		if(T[0] == '[') {
 			ArrayType* v;
@@ -261,8 +272,8 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 								}
 								
 								args[i].l = objectArray;
-								break;
 							}	
+							break;
 						case 'D':
 							v = DatumGetArrayTypeP(arg);
 							nc = 0;
@@ -280,8 +291,8 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 								}
 								
 								args[i].l = objectArray;
-								break;
 							}	
+							break;
 						default:
 							strcpy(entry->data,"Could not deserialize java function argument (unknown 2d array type)");
 							return -1;
@@ -328,6 +339,7 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 
 							// Loop over class fields to prepare                             
 							for(int j = 0; j < len; j++) {
+								char error_msg[128];
 								
 								// Detect field
 								jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, j);
@@ -347,7 +359,6 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 								jstr2[j] = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
 								typename[j] =  (*jenv)->GetStringUTFChars(jenv, jstr2[j], false);
 
-								char error_msg[128];
 								sig[j] = convert_name_to_JNI_signature(typename[j], error_msg);
 								
 								if(sig[j] == NULL) {
@@ -412,7 +423,7 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 				text* txt = DatumGetTextP(arg);
 				int len = VARSIZE_ANY_EXHDR(txt)+1;
 				char t[len];
-				text_to_cstring_buffer(txt, &t, len);
+				text_to_cstring_buffer(txt, &t[0], len);
 				args[i].l = (*jenv)->NewStringUTF(jenv, t);
 				argprim[i] = 2;
 
@@ -442,6 +453,7 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 					for(int j = 0; j < len; j++) {
 						
 						// ToDo: Move to helper function ?
+						const char* sig;
 
 						// Detect field
 						jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, j);
@@ -451,7 +463,7 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 						jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
 						jstring jstr = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
 					
-						char* fieldname =  (*jenv)->GetStringUTFChars(jenv, jstr, false);
+						const char* fieldname =  (*jenv)->GetStringUTFChars(jenv, jstr, false);
 					
 						m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
 						jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
@@ -459,9 +471,9 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 
 						m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
 						jstring jstr2 = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
-						char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
+						const char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
 
-						char* sig = convert_name_to_JNI_signature(typename, entry->data);
+						sig = convert_name_to_JNI_signature(typename, entry->data);
 						
 						if(sig == NULL) {
 							return -1;  
@@ -551,18 +563,22 @@ plunijava_worker_main(Datum main_arg)
 	Oid			roleoid;
 	Oid			dboid;
 	bits32		flags = 0;
+
+	char error_msg[128];
+	int jc;
+	char buf[BGW_MAXLEN];
+	bool found;
+
  	memcpy(&roleoid,&MyBgworkerEntry->bgw_extra[0],4);
 	memcpy(&dboid,&MyBgworkerEntry->bgw_extra[4],4);
 	memcpy(&flags,&MyBgworkerEntry->bgw_flags,4);
 
 	activeSPI = MyBgworkerEntry->bgw_extra[9];
 
-	char buf[BGW_MAXLEN];
 	snprintf(buf, BGW_MAXLEN, "%s_%d", MyBgworkerEntry->bgw_name, worker_id); 
 	//snprintf(buf, BGW_MAXLEN, "%s", MyBgworkerEntry->bgw_name); 
 
 	// Attach to shared memory
-	bool found;
 
 	worker_head = (worker_data_head*) ShmemInitStruct(MyBgworkerEntry->bgw_name,
 								   sizeof(worker_data_head),
@@ -611,8 +627,7 @@ plunijava_worker_main(Datum main_arg)
 	}
 
     // Start JVM
-	char error_msg[128];
-    int jc = startJVM(error_msg);
+	jc = startJVM(error_msg);
    	if(jc < 0) {
 		elog(ERROR,"%s",error_msg);
 	}
@@ -625,14 +640,16 @@ plunijava_worker_main(Datum main_arg)
 	 */
 	while(!got_signal)
 	{
-		int			ret;
+		int ev;
+		dlist_node* dnode;
+		worker_exec_entry* entry;
 
         SpinLockAcquire(&worker_head->lock);
        
         if (dlist_is_empty(&worker_head->exec_list))
         {
             SpinLockRelease(&worker_head->lock);
-		    int ev = WaitLatch(MyLatch,
+		    ev = WaitLatch(MyLatch,
                             WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
                             10 * 1000L,
                             PG_WAIT_EXTENSION);
@@ -647,8 +664,8 @@ plunijava_worker_main(Datum main_arg)
         /*
             Exec task
         */       
-        dlist_node* dnode = dlist_pop_head_node(&worker_head->exec_list);
-        worker_exec_entry* entry = dlist_container(worker_exec_entry, node, dnode);
+        dnode = dlist_pop_head_node(&worker_head->exec_list);
+        entry = dlist_container(worker_exec_entry, node, dnode);
 
         // Run function and return data
         //elog(WARNING,"BG worker taskid: %d",entry->taskid);
@@ -683,7 +700,7 @@ plunijava_worker_main(Datum main_arg)
 		
 		//elog(WARNING,"[DEBUG]: Calling java function %s->%s",entry->class_name,entry->method_name);
 		if(jfr == 0) {			
-			jfr = call_java_function(values, primitive, entry->class_name, entry->method_name, entry->signature, entry->return_type, &args, entry->data);
+			jfr = call_java_function(values, primitive, entry->class_name, entry->method_name, entry->signature, entry->return_type, &args[0], entry->data);
 		} 
 
 		// Release args
@@ -697,7 +714,7 @@ plunijava_worker_main(Datum main_arg)
 			jthrowable exh = (*jenv)->ExceptionOccurred(jenv);
 			
 			if(exh !=0) {
-				prepareErrorMsg(exh, &entry->data, MAX_DATA); 
+				prepareErrorMsg(exh, &entry->data[0], MAX_DATA); 
 			} else {
 				strcpy(entry->data,"Unknown error occured during java function call");
 			}	
@@ -715,7 +732,7 @@ plunijava_worker_main(Datum main_arg)
 			char* data = entry->data;
 			for(int i = 0; i < entry->n_return; i++) {
 				if(!primitive[i]) 
-					datumSerialize( PG_DETOAST_DATUM( values[i] ) , false, primitive[i],-1, &data);
+					datumSerialize( PointerGetDatum( PG_DETOAST_DATUM( values[i] ) ) , false, primitive[i],-1, &data);
 				else
 					datumSerialize( values[i], false, primitive[i],-1, &data);
 			}		
@@ -748,25 +765,23 @@ void prepareErrorMsg(jthrowable exh, char* target, int cutoff) {
 	jclass Throwable_class = (*jenv)->FindClass(jenv, "java/lang/Throwable");
 	jmethodID Throwable_getMessage =  (*jenv)->GetMethodID(jenv,Throwable_class, "getMessage", "()Ljava/lang/String;");
 
+	// Get stack trace
+	jmethodID stacktrace_method = (*jenv)->GetMethodID(jenv, Throwable_class, "getStackTrace", "()[Ljava/lang/StackTraceElement;");		
+	jclass ste_class = (*jenv)->FindClass(jenv, "java/lang/StackTraceElement");
+	jmethodID ste_tostring =  (*jenv)->GetMethodID(jenv,ste_class, "toString", "()Ljava/lang/String;");	
+	jobjectArray stacktraces = (*jenv)->CallObjectMethod(jenv, exh, stacktrace_method);
+	jsize len = (*jenv)->GetArrayLength(jenv, stacktraces);
+	
 	// Get error msg			
 	jstring jmsg = (jstring)(*jenv)->CallObjectMethod(jenv, exh, Throwable_getMessage);
-
 	const char* msg = (*jenv)->GetStringUTFChars(jenv, jmsg, false);
+	int c = strlen(msg);	
 
 	strcpy(target,msg);
 	target += strlen(msg);
 
 	(*jenv)->ReleaseStringUTFChars(jenv, jmsg, msg);
 	
-	// Get stack trace
-	jmethodID stacktrace_method = (*jenv)->GetMethodID(jenv, Throwable_class, "getStackTrace", "()[Ljava/lang/StackTraceElement;");		
-	jclass ste_class = (*jenv)->FindClass(jenv, "java/lang/StackTraceElement");
-	jmethodID ste_tostring =  (*jenv)->GetMethodID(jenv,ste_class, "toString", "()Ljava/lang/String;");
-	
-	jobjectArray stacktraces = (*jenv)->CallObjectMethod(jenv, exh, stacktrace_method);
-
-	jsize len = (*jenv)->GetArrayLength(jenv, stacktraces);
-	int c = strlen(msg);	
 	for(int i = 0; i < len; i++) {
 		jobject tmp =  (*jenv) -> GetObjectArrayElement(jenv,stacktraces, i);
 		// Get trace			

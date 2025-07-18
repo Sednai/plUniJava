@@ -37,6 +37,7 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "utils/hsearch.h"
+#include "utils/datum.h"
 
 #include "storage/proc.h"
 
@@ -47,12 +48,21 @@ worker_data_head *worker_head_global = NULL;
 
 HTAB *function_hash = NULL;
 
-enum { NS_PER_SECOND = 1000000000 };
-
 void GetNAttributes(HeapTupleHeader tuple,
                 int16 N, 
                 Datum* datum, bool *isNull, bool *passbyval);
+int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* argprim);
+#ifdef PGXC
+int argSerializer(char* target, char* signature, Datum* args);
+#else
+int argSerializer(char* target, char* signature, NullableDatum* args);
+#endif
 
+jvalue PG_text_to_jvalue(text* txt);
+
+/*
+// For performance tests
+enum { NS_PER_SECOND = 1000000000 };
 
 void sub_timespec(struct timespec t1, struct timespec t2, struct timespec *td)
 {
@@ -69,7 +79,7 @@ void sub_timespec(struct timespec t1, struct timespec t2, struct timespec *td)
         td->tv_sec++;
     }
 }
-
+*/
 static char* pgtype_to_java(Oid type) {
     switch(type) {
         case VOIDOID:
@@ -102,7 +112,11 @@ static Datum java_func_handler(PG_FUNCTION_ARGS)
     char *source;
     bool found;
     MemoryContext oldctx;
+    control_entry* centry;
+
     Oid fid = fcinfo->flinfo->fn_oid;
+
+
     //elog(WARNING,"[DEBUG]: Entry java function handler");
 
     if(function_hash == NULL) {
@@ -124,23 +138,24 @@ static Datum java_func_handler(PG_FUNCTION_ARGS)
 
     // Lookup in cache
     oldctx = MemoryContextSwitchTo(TopMemoryContext);
-    control_entry* centry = (control_entry *) hash_search(function_hash, (void *) &fid, HASH_ENTER, &found);
+    centry = (control_entry *) hash_search(function_hash, (void *) &fid, HASH_ENTER, &found);
     
     if (!found) {
         //elog(WARNING,"CENTRY NOT FOUND: %d",fid);
-     
+        char* token;
+        Form_pg_proc fstruct;
+        
         /* Fetch pg_proc entry. */
         HeapTuple tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(fid));
         
         if (!HeapTupleIsValid(tuple))
-                elog(ERROR, "cache lookup failed for function %u",
-                            fid);
+                elog(ERROR, "cache lookup failed for function %u",fid);
 
-        Form_pg_proc fstruct = (Form_pg_proc) GETSTRUCT(tuple);
+        fstruct = (Form_pg_proc) GETSTRUCT(tuple);
         ret = SysCacheGetAttr(PROCOID, tuple, Anum_pg_proc_prosrc, &isnull);
+        
         if (isnull)
-                elog(ERROR, "could not find call info for function \"%u\"",
-                            fid);
+                elog(ERROR, "could not find call info for function \"%u\"",fid);
         
         source = DatumGetCString(DirectFunctionCall1(textout, ret));
         
@@ -149,7 +164,7 @@ static Datum java_func_handler(PG_FUNCTION_ARGS)
         // Infer return type
         centry->return_type = pgtype_to_java(fstruct->prorettype);
 
-        char* token = strtok(source, "|");
+        token = strtok(source, "|");
         
         if(token != NULL) {
             centry->mode = (char*) strdup(token);
@@ -167,25 +182,26 @@ static Datum java_func_handler(PG_FUNCTION_ARGS)
                     if(token != NULL) {
                         centry->signature = strdup(token);
                     } else {
-                    
-                            
+                        // Args                     
+                        Oid        *argtypes;
+                        char      **argnames;
+                        char       *argmodes;
+                        int numargs;
+                        int pos;
+                        int len;
+
                         if(centry->return_type[0]=='O') {
                             elog(ERROR,"Return type requires manual specification of Java signature");
                         }
                         
                         // Try to infer signature   
                         
-                        // Args                     
-                        Oid        *argtypes;
-                        char      **argnames;
-                        char       *argmodes;
-                        char       *proname;
-
-                        int numargs = get_func_arg_info(tuple, &argtypes, &argnames, &argmodes);
+                        
+                        numargs = get_func_arg_info(tuple, &argtypes, &argnames, &argmodes);
                         
                         centry->signature = palloc(512);
                         centry->signature[0] = '(';
-                        int pos = 1;
+                        pos = 1;
                         for (int i = 0; i < numargs; i++)
                         {
                             Oid argtype = fstruct->proargtypes.values[i];
@@ -197,7 +213,7 @@ static Datum java_func_handler(PG_FUNCTION_ARGS)
                             }
                             
                             // Build signature
-                            int len = strlen(type);
+                            len = strlen(type);
                             memcpy(&centry->signature[pos],type,strlen(centry->return_type));
                             pos += len;
                         }
@@ -228,25 +244,24 @@ static Datum java_func_handler(PG_FUNCTION_ARGS)
     //elog(WARNING,"sig: %s",centry->signature);
     //elog(WARNING,"ret: %s",centry->return_type);
     
-    Datum retr;
     if(centry->mode[0] == 'F') {
         // Foreground without SPI
-        retr = control_fgworker(fcinfo, false, centry->class_name, centry->method_name, centry->signature, centry->return_type);
+        ret = control_fgworker(fcinfo, false, centry->class_name, centry->method_name, centry->signature, centry->return_type);
     } else if(centry->mode[0] == 'S') {
         // Foreground with SPI
-        retr = control_fgworker(fcinfo, true, centry->class_name, centry->method_name, centry->signature, centry->return_type);   
+        ret = control_fgworker(fcinfo, true, centry->class_name, centry->method_name, centry->signature, centry->return_type);   
     } else if(centry->mode[0] == 'G') {
         // Background global (NO SPI)
-        retr = control_bgworkers(fcinfo, MAX_WORKERS, false, true, centry->class_name, centry->method_name, centry->signature, centry->return_type);
+        ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, centry->class_name, centry->method_name, centry->signature, centry->return_type);
     } else if(centry->mode[0] == 'B') {
         // Background with SPI
-        retr = control_bgworkers(fcinfo, MAX_WORKERS, true, false, centry->class_name, centry->method_name, centry->signature, centry->return_type);
+        ret = control_bgworkers(fcinfo, MAX_WORKERS, true, false, centry->class_name, centry->method_name, centry->signature, centry->return_type);
     } else 
         elog(ERROR,"Not supported worker type: %s",centry->mode);
     
     MemoryContextSwitchTo(oldctx);
 
-    PG_RETURN_DATUM( retr );   
+    PG_RETURN_DATUM( ret );   
 }
 
 
@@ -276,6 +291,11 @@ Datum java_call_handler(PG_FUNCTION_ARGS)
     Main function to deliver tasks to bg workers and collect results
 */
 Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, bool globalWorker, char* class_name, char* method_name, char* signature, char* return_type) {
+    ReturnSetInfo   *rsinfo       = (ReturnSetInfo *) fcinfo->resultinfo;
+    TupleDesc tupdesc; 
+    int rtype = get_call_result_type(fcinfo, NULL, &tupdesc);
+    int natts;
+    bool* nulls;
 
     worker_data_head *worker_head;
 
@@ -295,18 +315,12 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
     }
 
     // Prepare return tuple
-    ReturnSetInfo   *rsinfo       = (ReturnSetInfo *) fcinfo->resultinfo;
-    
-    TupleDesc tupdesc; 
-    int rtype = get_call_result_type(fcinfo, NULL, &tupdesc);
-    
     if(rsinfo != NULL)
             ereport(ERROR,
                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                 errmsg("function returning set called in context "
                         "that cannot accept type set")));
     
-    int natts;
     if(rtype == TYPEFUNC_COMPOSITE) {
         tupdesc = BlessTupleDesc(tupdesc);
         natts = tupdesc->natts;
@@ -315,14 +329,16 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
         natts = 1;
     }
 
-    Datum values[natts];
-    bool* nulls = palloc0( natts * sizeof( bool ) );
+    nulls = palloc0( natts * sizeof( bool ) );
     
     SpinLockAcquire(&worker_head->lock);
     /*
         Lock acquired
     */      
     if(!dlist_is_empty(&worker_head->free_list)) {
+        dlist_iter    iter;
+        bool got_signal = false;
+     
         dlist_node* dnode = dlist_pop_head_node(&worker_head->free_list);
         worker_exec_entry* entry = dlist_container(worker_exec_entry, node, dnode);
 
@@ -335,9 +351,9 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
         entry->notify_latch = MyLatch;
 
 #ifdef PGXC        
-        entry->n_args = argSerializer(entry->data, signature, &fcinfo->arg );
+        entry->n_args = argSerializer(entry->data, signature, &fcinfo->arg[0] );
 #else
-        entry->n_args = argSerializer(entry->data, signature, &fcinfo->args );
+        entry->n_args = argSerializer(entry->data, signature, &fcinfo->args[0] );
 #endif
 
         // Push
@@ -352,17 +368,18 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
             Lock released
         */    
 
-       // Wait for return
-        dlist_iter    iter;
-        bool got_signal = false;
+        // Wait for return
         while(!got_signal)
 	    {
+            worker_exec_entry* ret;
+           
             SpinLockAcquire(&worker_head->lock);
         
             if (dlist_is_empty(&worker_head->return_list))
             {
+                int ev;
                 SpinLockRelease(&worker_head->lock);
-                int ev = WaitLatch(MyLatch,
+                ev = WaitLatch(MyLatch,
                                 WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
                                 1 * 1000L,
                                 PG_WAIT_EXTENSION);
@@ -374,7 +391,6 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
                 continue;
             }
     
-            worker_exec_entry* ret;
             dlist_foreach(iter, &worker_head->return_list) {
                 ret = dlist_container(worker_exec_entry, node, iter.cur);
 
@@ -387,17 +403,21 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
             SpinLockRelease(&worker_head->lock);           
         
             if(got_signal) {
-
+                char* data = entry->data;
+                Datum values[ret->n_return];
+                
                 // Process error message
                 if(entry->error) {
-                    pfree(nulls);
-                    // Copy message
                     char buf[ strlen(entry->data) ];
+
+                    pfree(nulls);
+                    
+                    // Copy message
                     strcpy(buf, entry->data);
                     
                     // Put to free list 
                     SpinLockAcquire(&worker_head->lock);
-                    dlist_push_tail(&worker_head->free_list,entry);           
+                    dlist_push_tail(&worker_head->free_list,&entry->node);           
                     SpinLockRelease(&worker_head->lock);              
 
                     // Throw
@@ -405,9 +425,6 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
                 }
 
                 // Prep return
-                char* data = entry->data;
-              
-                Datum values[ret->n_return];
                 for(int i = 0; i < ret->n_return; i++) {
                     bool null;
                     values[i] = datumDeSerialize(&data, &null);
@@ -415,7 +432,7 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
                 
                 // Cleanup
                 SpinLockAcquire(&worker_head->lock);
-                dlist_push_tail(&worker_head->free_list,entry);           
+                dlist_push_tail(&worker_head->free_list,&entry->node);           
                 SpinLockRelease(&worker_head->lock);              
 
                 if(tupdesc != NULL) {
@@ -435,13 +452,17 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
         elog(ERROR,"BG worker task queue is full");
     }
 
-    return NULL;
+    PG_RETURN_NULL();
 }
 
 /*
     Helper function to serialize function arguments for sending to background worker
 */
+#ifdef PGXC
 int argSerializer(char* target, char* signature, Datum* args) {
+#else
+int argSerializer(char* target, char* signature,  NullableDatum* args) {
+#endif
     bool openrb = false;
     bool openo = false;
     bool opensb = false;
@@ -485,16 +506,17 @@ int argSerializer(char* target, char* signature, Datum* args) {
                     target++;
                 } else {
                     // Serialize object argument
+                    Datum argu = args[ac].value;
                     target[0] = signature[i];
                     target[1] = '\0';
                     target+=2;
                     
                     if(strcmp("Ljava/lang/String;",spos) == 0) {
                         // String
-                        datumSerialize(args[ac], false, false, -1, &target);
+                        datumSerialize(argu, false, false, -1, &target);
                     } else {
                         // Composite type  
-                        HeapTupleHeader t = DatumGetHeapTupleHeader(args[ac]);
+                        HeapTupleHeader t = DatumGetHeapTupleHeader(argu);
 
                         // Serialize each composite object one-by-one
                         int16 Na = (int16) HeapTupleHeaderGetNatts( t );
@@ -524,12 +546,13 @@ int argSerializer(char* target, char* signature, Datum* args) {
                     target++;
                 } else {
                     // ToDo: Check if supported
+                    Datum argu = args[ac].value;
                     if(signature[i] != 'L') {
                         // Serialize native array
                         target[0] = signature[i];
                         target[1] = '\0';
                         target+=2;
-                        datumSerialize( PG_DETOAST_DATUM( args[ac] ), false, false, -1, &target);
+                        datumSerialize( PointerGetDatum( PG_DETOAST_DATUM( argu ) ), false, false, -1, &target);
                     } else {
                         if(signature[i] == '[') {
                             elog(ERROR,"2d arrays as input to bg worker not supported yet");
@@ -557,13 +580,13 @@ int argSerializer(char* target, char* signature, Datum* args) {
                                 target++;
                                 
                                 // Get array
-                                ArrayType *v = DatumGetArrayTypeP(args[ac]);
+                                ArrayType *v = DatumGetArrayTypeP( argu );
                                 Oid elemType = ARR_ELEMTYPE(v);
                                 Datum  *datums;
                                 bool   *nulls;
                                 int     N;
                                 int16   elemWidth;
-                                bool    elemTypeByVal, isNull;
+                                bool    elemTypeByVal;
                                 char    elemAlignmentCode;
                                                             
                                 get_typlenbyvalalign(elemType, &elemWidth, &elemTypeByVal, &elemAlignmentCode);
@@ -619,12 +642,12 @@ int argSerializer(char* target, char* signature, Datum* args) {
                 }
             } else {
                 // ToDo: Check if supported
-                    
+                Datum argu = args[ac].value;
                 // Serialize native argument
                 target[0] = signature[i];
                 target[1] = '\0';
                 target+=2;
-                datumSerialize(args[ac], false, true, -1, &target);
+                datumSerialize(argu, false, true, -1, &target);
                 ac++;
             }
         }
@@ -640,7 +663,8 @@ int argSerializer(char* target, char* signature, Datum* args) {
     Main function to start fg worker and collect results
 */
 Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name, char* method_name, char* signature, char* return_type) {
-    
+    char error_msg[128];  
+  
     ReturnSetInfo   *rsinfo       = (ReturnSetInfo *) fcinfo->resultinfo;
     
     TupleDesc tupdesc; 
@@ -662,8 +686,7 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
     }
 
     // Start JVM
-    char error_msg[128];  
-    if(jenv == NIL) {
+    if(jenv == NULL) {
         int jc = startJVM(error_msg);
         if(jc < 0 ) {
             elog(ERROR,"%s",error_msg);
@@ -695,7 +718,7 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
         bool primitive[natts];
         memset(primitive, 0, sizeof(primitive));
         //elog(WARNING,"[DEBUG] %s",return_type);
-        jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args, error_msg);
+        jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args[0], error_msg);
     
         if(jfr == 0) {     
             if(need_SPI) disconnect_SPI();
@@ -726,7 +749,7 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
         rsinfo->setResult             = tupstore;
         rsinfo->returnMode            = SFRM_Materialize;
 
-        jfr = call_iter_java_function(tupstore,tupdesc,class_name, method_name, signature, &args, error_msg);
+        jfr = call_iter_java_function(tupstore,tupdesc,class_name, method_name, signature, &args[0], error_msg);
 
         MemoryContextSwitchTo(oldcontext);
     }
@@ -768,7 +791,7 @@ jvalue PG_text_to_jvalue(text* txt) {
     int len = VARSIZE_ANY_EXHDR(txt)+1;
     char t[len];
    
-    text_to_cstring_buffer(txt, &t, len);
+    text_to_cstring_buffer(txt, &t[0], len);
    
     val.l = (*jenv)->NewStringUTF(jenv, t);
    
@@ -853,7 +876,9 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
 
                             // Loop over class fields                            
                             for(int i = 0; i < len; i++) {
-                                
+                                char error_msg[128];
+                                const char* sig;
+
                                 // ToDo: Move to helper function ?
 
                                 // Detect field
@@ -872,10 +897,9 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
 
                                 m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
                                 jstring jstr2 = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
-                                char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
+                                const char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
 
-                                char error_msg[128];
-                                char* sig = convert_name_to_JNI_signature(typename, error_msg);
+                                sig = convert_name_to_JNI_signature(typename, error_msg);
                                 
                                 if(sig == NULL) {
                                     elog(ERROR,"%s",error_msg);   
@@ -1087,10 +1111,10 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                             break;
                         case 'L':
                             // Composite
-                            i++;
                             char cbuf[128];
                             cbuf[0] = 'L';
                             int c = 1;
+                            i++;
                             while(signature[i] != ';' && i < strlen(signature) ) {
                                 cbuf[c] = signature[i];
                                 i++;
@@ -1118,7 +1142,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                                     int len = VARSIZE_ANY_EXHDR(txt)+1;
                                                     char t[len];
                                                 
-                                                    text_to_cstring_buffer(txt, &t, len);
+                                                    text_to_cstring_buffer(txt, &t[0], len);
                                                 
                                                     jstring string = (*jenv)->NewStringUTF(jenv, t);
                                                  
@@ -1205,7 +1229,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                     bool   *nulls;
                                     int     N;
                                     int16   elemWidth;
-                                    bool    elemTypeByVal, isNull;
+                                    bool    elemTypeByVal;
                                     char    elemAlignmentCode;
                                                                 
                                     get_typlenbyvalalign(elemType, &elemWidth, &elemTypeByVal, &elemAlignmentCode);
@@ -1309,7 +1333,12 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
 PG_FUNCTION_INFO_V1(pluj_clear_user_queue);
 Datum
 pluj_clear_user_queue(PG_FUNCTION_ARGS) {
+    int c;
+
     if(worker_head_user == NULL) {
+        bool found;
+        worker_data_head* worker_head_user;
+
         Oid			roleid = GetUserId();
 	    Oid			dbid = MyDatabaseId;
 	
@@ -1317,8 +1346,8 @@ pluj_clear_user_queue(PG_FUNCTION_ARGS) {
         snprintf(buf, 12, "UJ_%d_%d", roleid, dbid); 
         
         LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
-        bool found;
-        worker_data_head* worker_head_user = (worker_data_head*) ShmemInitStruct(buf,
+       
+        worker_head_user = (worker_data_head*) ShmemInitStruct(buf,
                                     sizeof(worker_data_head),
                                     &found);
         LWLockRelease(AddinShmemInitLock);
@@ -1333,7 +1362,8 @@ pluj_clear_user_queue(PG_FUNCTION_ARGS) {
     }
 
     SpinLockAcquire(&worker_head_user->lock);
-    int c = 0;
+   
+    c = 0;
     while(!dlist_is_empty(&worker_head_user->exec_list)) {
         dlist_node* dnode = dlist_pop_head_node(&worker_head_user->exec_list);
         dlist_push_tail(&worker_head_user->free_list,dnode);
@@ -1348,8 +1378,13 @@ pluj_clear_user_queue(PG_FUNCTION_ARGS) {
 PG_FUNCTION_INFO_V1(pluj_show_user_queue);
 Datum
 pluj_show_user_queue(PG_FUNCTION_ARGS) {
+    int c;
+    dlist_iter iter;
     
     if(worker_head_user == NULL) {
+        bool found;
+        worker_data_head* worker_head_user;
+
         Oid			roleid = GetUserId();
 	    Oid			dbid = MyDatabaseId;
 	
@@ -1357,8 +1392,8 @@ pluj_show_user_queue(PG_FUNCTION_ARGS) {
         snprintf(buf, 12, "UJ_%d_%d", roleid, dbid); 
         
         LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
-        bool found;
-        worker_data_head* worker_head_user = (worker_data_head*) ShmemInitStruct(buf,
+       
+        worker_head_user = (worker_data_head*) ShmemInitStruct(buf,
                                     sizeof(worker_data_head),
                                     &found);
         LWLockRelease(AddinShmemInitLock);
@@ -1374,9 +1409,7 @@ pluj_show_user_queue(PG_FUNCTION_ARGS) {
 
     SpinLockAcquire(&worker_head_user->lock);
     
-    int c = 0;
-    dlist_iter iter;
-    
+    c = 0;
     dlist_foreach(iter, &worker_head_user->exec_list) {
         c++;
     }
@@ -1389,7 +1422,11 @@ pluj_show_user_queue(PG_FUNCTION_ARGS) {
 PG_FUNCTION_INFO_V1(pluj_kill_user_workers);
 Datum
 pluj_kill_user_workers(PG_FUNCTION_ARGS) {
-   
+    worker_data_head* worker_head_user;
+    bool found;
+    int n_workers;
+    int ret;
+
     Oid			roleid = GetUserId();
     Oid			dbid = MyDatabaseId;
 
@@ -1397,8 +1434,8 @@ pluj_kill_user_workers(PG_FUNCTION_ARGS) {
     snprintf(buf, BGW_MAXLEN, "UJ_%d_%d", roleid, dbid); 
     
     LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
-    bool found;
-    worker_data_head* worker_head_user = (worker_data_head*) ShmemInitStruct(buf,
+   
+    worker_head_user = (worker_data_head*) ShmemInitStruct(buf,
                                 sizeof(worker_data_head),
                                 &found);
     LWLockRelease(AddinShmemInitLock);
@@ -1410,14 +1447,14 @@ pluj_kill_user_workers(PG_FUNCTION_ARGS) {
 
     SpinLockAcquire(&worker_head_user->lock);
     
-    int n_workers = worker_head_user->n_workers;
+    n_workers = worker_head_user->n_workers;
     
     if(n_workers == 0) {
         SpinLockRelease(&worker_head_user->lock);   
         elog(ERROR,"Can not kill workers if not started yet");
     }
     
-    int ret = 0;
+    ret = 0;
     for(int r = 0; r < n_workers; r++) {
         ret += kill( worker_head_user->pid[r], SIGTERM);
     }
@@ -1430,14 +1467,17 @@ pluj_kill_user_workers(PG_FUNCTION_ARGS) {
 PG_FUNCTION_INFO_V1(pluj_kill_global_workers);
 Datum
 pluj_kill_global_workers(PG_FUNCTION_ARGS) {
-   
+    worker_data_head* worker_head_global;
+    bool found;
+    int n_workers;
+    int ret;
+
     // Get global data structure
     char buf[BGW_MAXLEN];
     snprintf(buf, BGW_MAXLEN, "UJ_global"); 
         
     LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
-    bool found;
-    worker_data_head* worker_head_global = (worker_data_head*) ShmemInitStruct(buf,
+    worker_head_global = (worker_data_head*) ShmemInitStruct(buf,
                                 sizeof(worker_data_head),
                                 &found);
     LWLockRelease(AddinShmemInitLock);
@@ -1449,14 +1489,14 @@ pluj_kill_global_workers(PG_FUNCTION_ARGS) {
     
     SpinLockAcquire(&worker_head_global->lock);
     
-    int n_workers = worker_head_global->n_workers;
+    n_workers = worker_head_global->n_workers;
     
     if(n_workers == 0) {
         SpinLockRelease(&worker_head_global->lock);   
         elog(ERROR,"Can not kill workers if not started yet (n_workers=0)");
     }
     
-    int ret = 0;
+    ret = 0;
     for(int r = 0; r < n_workers; r++) {
         if(worker_head_global->pid[r] != 0) {
             int err = kill( worker_head_global->pid[r], SIGTERM);

@@ -10,11 +10,20 @@
 #include "utils/guc.h"
 
 #include "utils/tuplestore.h"
+#include "utils/builtins.h"
 
 JNIEnv *jenv;
 JavaVM *jvm;
 
-char* convert_name_to_JNI_signature(char* name, char* error_msg) {
+ArrayType* createArray(jsize nElems, size_t elemSize, Oid elemType, bool withNulls);
+ArrayType* create2dArray(jsize dim1, jsize dim2, size_t elemSize, Oid elemType, bool withNulls);
+
+Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, const char* fieldname, const char* sig, char* error_msg);
+
+JavaVMOption* setJVMoptions(int* numOptions);
+char** readOptions(char* filename, int* N);
+
+const char* convert_name_to_JNI_signature(const char* name, char* error_msg) {
     // Arrays
     if(name[0] == '[') {
         if(name[1] != '[') {
@@ -124,7 +133,7 @@ ArrayType* create2dArray(jsize dim1, jsize dim2, size_t elemSize, Oid elemType, 
 	return v;
 }
 
-int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* sig) {
+int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, const char* sig) {
     if(sig[0] != '[') {
         
         switch(sig[0]) {
@@ -155,7 +164,7 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
                     int len = VARSIZE_ANY_EXHDR(txt)+1;
                     char t[len];
                 
-                    text_to_cstring_buffer(txt, &t, len);
+                    text_to_cstring_buffer(txt, &t[0], len);
                     
                     jstring string = (*jenv)->NewStringUTF(jenv, t);
                     
@@ -214,7 +223,7 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
     return -1;
 }
 
-Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, char* fieldname, char* sig, char* error_msg) {
+Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, const char* fieldname, const char* sig, char* error_msg) {
     jfieldID fid = (*jenv)->GetFieldID(jenv,cls,fieldname,sig);       
     if(sig[0] != '[') {
         // Natives
@@ -233,7 +242,7 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
             case 'L':
                 *primitive = false;
                 jstring string = (*jenv)->GetObjectField(jenv,data,fid);
-                char *nativeString = (*jenv)->GetStringUTFChars(jenv, string, 0);
+                const char *nativeString = (*jenv)->GetStringUTFChars(jenv, string, 0);
                 
                 int len = strlen(nativeString);
                 text       *result = (text *) palloc(len + VARHDRSZ);
@@ -422,11 +431,12 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
     }
 
     snprintf(error_msg, 256, "Unsupported Java signature %s in composite return",sig);
-    return NULL;
+    return (Datum) 0;
 }
 
 // ToDo: Iterator / setof multi-row return
 int call_java_function(Datum* values, bool* primitive, char* class_name, char* method_name, char* signature, char* return_type, jvalue* args, char* error_msg) {
+    jmethodID methodID;
 
     // Prep and call function
     jclass clazz = (*jenv)->FindClass(jenv, class_name);
@@ -437,7 +447,7 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         return -1;
     }
 
-    jmethodID methodID = (*jenv)->GetStaticMethodID(jenv, clazz, method_name, signature);
+    methodID = (*jenv)->GetStaticMethodID(jenv, clazz, method_name, signature);
 
     if(methodID == NULL) {
         elog(WARNING,"Java method %s with signature %s not found",method_name, signature);
@@ -527,6 +537,10 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         return 0;
 
     } else if(strcmp(return_type, "Ljava/lang/String;") == 0) {
+        const char* str;
+        int len;
+        text *result;
+
         jobject ret = (*jenv)->CallStaticObjectMethodA(jenv, clazz, methodID, args);
      
         // Catch exception
@@ -539,10 +553,10 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
             return -3;
         }
         
-        char* str =  (*jenv)->GetStringUTFChars(jenv, ret, false);
+        str =  (*jenv)->GetStringUTFChars(jenv, ret, false);
         
-        int len = strlen(str);
-        text       *result = (text *) palloc(len + VARHDRSZ);
+        len = strlen(str);
+        result = (text *) palloc(len + VARHDRSZ);
         SET_VARSIZE(result, len + VARHDRSZ);
         memcpy(VARDATA(result), str, len);
 
@@ -585,6 +599,11 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         }
     */    
     }  else {
+        jclass cls;
+        jmethodID getFields;
+        jobjectArray fieldsList;
+        jsize len;
+
         jobject ret = (*jenv)->CallStaticObjectMethodA(jenv, clazz, methodID, args);
      
         // Catch exception
@@ -599,13 +618,13 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
 
         // Analyis return
         // ToDo: Move into helper function
-        jclass cls = (*jenv)->GetObjectClass(jenv, ret);
+        cls = (*jenv)->GetObjectClass(jenv, ret);
 
-        jmethodID getFields = (*jenv)->GetMethodID(jenv, (*jenv)->GetObjectClass(jenv,cls), "getFields", "()[Ljava/lang/reflect/Field;");
+        getFields = (*jenv)->GetMethodID(jenv, (*jenv)->GetObjectClass(jenv,cls), "getFields", "()[Ljava/lang/reflect/Field;");
 
-        jobjectArray fieldsList = (jobjectArray)  (*jenv)->CallObjectMethod(jenv, cls, getFields); 
+        fieldsList = (jobjectArray)  (*jenv)->CallObjectMethod(jenv, cls, getFields); 
         
-        jsize len =  (*jenv)->GetArrayLength(jenv,fieldsList);
+        len =  (*jenv)->GetArrayLength(jenv,fieldsList);
 
         if(len == 0) {
                 strcpy(error_msg,"Empty composite return");
@@ -624,7 +643,7 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
                 jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
                 jstring jstr = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
             
-                char* fieldname =  (*jenv)->GetStringUTFChars(jenv, jstr, false);
+                const char* fieldname =  (*jenv)->GetStringUTFChars(jenv, jstr, false);
             
                 m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
                 jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
@@ -632,9 +651,9 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
 
                 m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
                 jstring jstr2 = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
-                char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
+                const char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
             
-                char* sig = convert_name_to_JNI_signature(typename, error_msg);
+                const char* sig = convert_name_to_JNI_signature(typename, error_msg);
                 if(sig == NULL) {
                     // Cleanup
                     (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
@@ -664,9 +683,18 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
     Call java function with iterator return (ONLY FOR FG WORKER !)
 */
 int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* class_name, char* method_name, char* signature, jvalue* args, char* error_msg) {
+    jclass clazz;
+    jmethodID methodID;
+    jobject ret;
+    jclass cls;
+    
+    jmethodID hasNextF;
+    jmethodID nextF;
+    
+    bool hasNext;
 
     // Prep and call function
-    jclass clazz = (*jenv)->FindClass(jenv, class_name);
+    clazz = (*jenv)->FindClass(jenv, class_name);
 
     if(clazz == NULL) {
         elog(WARNING,"Java class %s not found !",class_name);
@@ -674,7 +702,7 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
         return -1;
     }
 
-    jmethodID methodID = (*jenv)->GetStaticMethodID(jenv, clazz, method_name, signature);
+    methodID = (*jenv)->GetStaticMethodID(jenv, clazz, method_name, signature);
 
     if(methodID == NULL) {
         elog(WARNING,"Java method %s with signature %s not found !",method_name, signature);
@@ -682,7 +710,7 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
         return -2;
     }
 
-    jobject ret = (*jenv)->CallStaticObjectMethodA(jenv, clazz, methodID, args);
+    ret = (*jenv)->CallStaticObjectMethodA(jenv, clazz, methodID, args);
 
     // Catch exception
     if( (*jenv)->ExceptionCheck(jenv) ) {
@@ -690,18 +718,18 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
     }
 
     // Analyis return
-    jclass cls = (*jenv)->GetObjectClass(jenv, ret);
+    cls = (*jenv)->GetObjectClass(jenv, ret);
     
     // Iterator
-    jmethodID hasNextF = (*jenv)->GetMethodID(jenv, cls, "hasNext", "()Z");
-    jmethodID nextF = (*jenv)->GetMethodID(jenv, cls, "next", "()Ljava/lang/Object;");
+    hasNextF = (*jenv)->GetMethodID(jenv, cls, "hasNext", "()Z");
+    nextF = (*jenv)->GetMethodID(jenv, cls, "next", "()Ljava/lang/Object;");
 
     if(hasNextF == NULL || nextF == NULL) {
         strcpy(error_msg,"Java object returned is not an iterator");
         return -6;
     }
     
-    bool hasNext = (bool) (*jenv)->CallBooleanMethod(jenv, ret, hasNextF);
+    hasNext = (bool) (*jenv)->CallBooleanMethod(jenv, ret, hasNextF);
 
     while(hasNext) {
         // Get row object        
@@ -735,7 +763,7 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
                 jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
                 jstring jstr = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
             
-                char* fieldname =  (*jenv)->GetStringUTFChars(jenv, jstr, false);
+                const char* fieldname =  (*jenv)->GetStringUTFChars(jenv, jstr, false);
             
                 m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
                 jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
@@ -743,9 +771,9 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
 
                 m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
                 jstring jstr2 = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
-                char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
+                const char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
             
-                char* sig = convert_name_to_JNI_signature(typename, error_msg);
+                const char* sig = convert_name_to_JNI_signature(typename, error_msg);
                 if(sig == NULL) {
                     // Cleanup
                     (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
@@ -800,21 +828,26 @@ void freejvalues(jvalue* jvals, short* argprim, int N) {
 
 char** readOptions(char* filename, int* N) {
     FILE *file;
+    char **lines = NULL;
+    char *line = NULL;
+    char* newLine = NULL;
+    char *p;
+    size_t len = 0;
+    size_t read;
+
+    *N = -1;
+
     file = fopen(filename,"r");
     if(file == NULL) {
         elog(ERROR,"File %s not found",filename);
     }
-    char **lines = NULL;
-    char *line =  NULL;
-    *N = -1;
-    size_t len = 0;
-    size_t read;
+   
     while((read = getline(&line,&len,file)) != -1) {
         if ((line[0] != '#') && (line[0] != '\n')) {
             (*N)++;
             
             // Insert = for add-exports
-            char *p = strstr(line, "--add-exports ");
+            p = strstr(line, "--add-exports ");
             if (p != NULL) {
                 memcpy(p, "--add-exports=",14);
             }
@@ -829,7 +862,7 @@ char** readOptions(char* filename, int* N) {
             lines = (char**)realloc(lines, ( (*N)+1) * sizeof(char*));
             
             line[read-1] = '\0';
-            char* newLine = (char*)malloc((read) * sizeof(char));
+            newLine = (char*)malloc((read) * sizeof(char));
             strncpy(newLine,line,read);
 
             lines[*N] = newLine;
@@ -847,20 +880,21 @@ char** readOptions(char* filename, int* N) {
     Read JVM options from GUC
 */
 JavaVMOption* setJVMoptions(int* numOptions) {
-    
+    JavaVMOption* opts;
+    int No = 0;
+    bool active = false;
+    int spos = 0;
+  
     // Read option string from GUC
-    char* OPTIONS = GetConfigOption("pluj.jvmoptions",true,true);
+    const char* OPTIONS = GetConfigOption("pluj.jvmoptions",true,true);
 
     if(OPTIONS == NULL) {
         elog(ERROR,"pluj.jvmoptions GUC not set");
     } 
 
     // Parse options
-    JavaVMOption* opts = malloc( 1*sizeof(JavaVMOption) );
+    opts = malloc( 1*sizeof(JavaVMOption) );
     
-    int No = 0;
-    bool active = false;
-    int spos = 0;
     for(int i=0; i < strlen(OPTIONS); i++) {
         if( (OPTIONS[i] == '-' || OPTIONS[i] == '@') && !active) { 
             active = true;
@@ -918,13 +952,18 @@ JavaVMOption* setJVMoptions(int* numOptions) {
     Java virtual machine startup
 */
 int startJVM(char* error_msg) {
+   
+    int numOptions;
+    void *jvmLibrary;
+    JavaVMInitArgs vm_args;
+    JavaVMOption *options;
+    const char* JVM_SO_FILE;
+    JNI_CreateJavaVM_func JNI_CreateJavaVM;
+    jint result;
 
     elog(NOTICE,"Starting JVM");
-    
-    int numOptions;
-    JavaVMOption *options = setJVMoptions(&numOptions);
-
-    JavaVMInitArgs vm_args;
+     
+    options = setJVMoptions(&numOptions);
 
     vm_args.version = JNI_VERSION_1_8;
     vm_args.nOptions = numOptions;
@@ -932,24 +971,24 @@ int startJVM(char* error_msg) {
     vm_args.ignoreUnrecognized = JNI_FALSE;
 
     // Read location of libjvm from GUC
-    char* JVM_SO_FILE = GetConfigOption("pluj.libjvm",true,true);
+    JVM_SO_FILE = GetConfigOption("pluj.libjvm",true,true);
 
     if(JVM_SO_FILE == NULL) {
         strcpy(error_msg,"pluj.libjvm GUC pointing to libjvm.so not set");
         return -1;
     }
 
-    void *jvmLibrary = dlopen(JVM_SO_FILE, RTLD_NOW | RTLD_GLOBAL);
+    jvmLibrary = dlopen(JVM_SO_FILE, RTLD_NOW | RTLD_GLOBAL);
 
-    JNI_CreateJavaVM_func JNI_CreateJavaVM = (JNI_CreateJavaVM_func) dlsym(jvmLibrary, "JNI_CreateJavaVM");
+    JNI_CreateJavaVM = (JNI_CreateJavaVM_func) dlsym(jvmLibrary, "JNI_CreateJavaVM");
 
-    jint result = JNI_CreateJavaVM(&jvm, (void **)&jenv, &vm_args);
+    result = JNI_CreateJavaVM(&jvm, (void **)&jenv, &vm_args);
     
     if(result < 0) {
         snprintf(error_msg, 14, "JVM error %d",result);
     }
 
-    elog(NOTICE,"JVM result: %d",result);
+    elog(NOTICE,"JVM startup complete");
 
     // Free
     for(int i = 0; i < numOptions; i++) {

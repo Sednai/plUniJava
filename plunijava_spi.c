@@ -105,11 +105,11 @@ int execute(char* query, bool use_cursor) {
                     prtl = SPI_cursor_open(NULL, plan, NULL, NULL, false);  
                     //elog(WARNING,"Cursor plan (%s) -> prtl",query);      
                 } else {
-                    int exec = SPI_execute_plan(plan, NULL, NULL, false, 0);  
+                    SPI_execute_plan(plan, NULL, NULL, false, 0);  
                     RCACHE.proc = SPI_processed; 
                 }
             } else {
-                int exec = SPI_execute(query, false, 0);
+                SPI_execute(query, false, 0);
                 RCACHE.proc = SPI_processed;   
                 //elog(WARNING,"Non-cursor plan (%s) -> %d -> %d",query,exec,RCACHE.proc);
             }  
@@ -169,7 +169,7 @@ bool fetch_next() {
                             RCACHE.data[i*RCACHE.ncols + c] = col;
                         } else {
                             // ToDo: Setting for null treatment !
-                            RCACHE.data[i*RCACHE.ncols + c] = NULL;
+                            RCACHE.data[i*RCACHE.ncols + c] = (Datum) 0;
                             //elog(WARNING,"NULL DETECTED !");
                         }  
                     }      
@@ -206,21 +206,21 @@ float getfloat(int column) {
 
 int getint(int column) {
     if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
-        if(RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] != NULL) {
+        if(RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] != (Datum) 0) {
             return DatumGetInt32( RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] );
         } else {
             // Return 0 for NULL
             return 0;
         }
     }
-    return NAN;
+    return 0;
 }
 
 long getlong(int column) {
     if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
         return DatumGetInt64( RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] );
     }
-    return NAN;
+    return 0;
 }
 
 // NOT READY YET <- Need to pipe through varlena structure directly
@@ -275,14 +275,17 @@ float_array_data* getvector(int column) {
 
 double_array_data* fetch_next_double_array(int column) { 
     if(SPI_connected) {
-        if(prefetch==NIL) {  
+        if(prefetch==NULL) {
+            TupleDesc tupdesc;
+            SPITupleTable* tuptable;
+
             SPI_cursor_fetch(prtl, true, 10000);
             proc = SPI_processed; 
             if(proc > 0) {
                 prefetch = palloc(proc*sizeof(Datum));
                 
-                TupleDesc tupdesc = SPI_tuptable->tupdesc;
-                SPITupleTable *tuptable = SPI_tuptable;
+                tupdesc = SPI_tuptable->tupdesc;
+                tuptable = SPI_tuptable;
         
                 for(int i = 0; i < proc; i++) {
                     HeapTuple row = tuptable->vals[proc-i-1];
@@ -308,7 +311,7 @@ double_array_data* fetch_next_double_array(int column) {
                 }
             }
 
-            if(col != NIL) {
+            if(col != (Datum) 0) {
                 ArrayType* arr = DatumGetArrayTypeP(col);  
                 
                 A[0].size = (int) ArrayGetNItems(ARR_NDIM(arr), ARR_DIMS(arr));
