@@ -225,7 +225,7 @@ long getlong(int column) {
 
 bool getboolean(int column) {
     if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
-        if(RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] != NULL) {
+        if(RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] != (Datum) 0) {
             return DatumGetBool( RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] );
         } else {
             // Return 0 for NULL

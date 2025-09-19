@@ -122,8 +122,19 @@ CREATE OR REPLACE FUNCTION f_test_njdbc1() RETURNS SETOF TESTTYPE1 AS 'S|ai/sedn
 
 SELECT f_test_njdbc1();
 
+CREATE TYPE TESTTYPE3 as (A boolean);
+CREATE TABLE test_table2(id int, data boolean);
+INSERT INTO test_table2 (id,data) VALUES (1,'t'),(2,'f'),(3,'t');
+
+CREATE OR REPLACE FUNCTION f_test_njdbc2() RETURNS SETOF TESTTYPE3 AS 'S|ai/sedn/plunijava/Tests|test_njdbc2|()Ljava/util/Iterator;' LANGUAGE UJAVA;
+
+SELECT f_test_njdbc2();
+
+
 --Cleanup
 DROP TABLE test_table1;
+DROP TABLE test_table2;
 DROP TYPE TESTTYPE1 CASCADE;
 DROP TYPE TESTTYPE2 CASCADE;
+DROP TYPE TESTTYPE3 CASCADE;
 DROP EXTENSION PLUNIJAVA CASCADE;

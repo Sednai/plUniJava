@@ -37,7 +37,6 @@ void sigTermHandler(SIGNAL_ARGS);
 void plunijava_worker_main(Datum main_arg);
 int argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry);
 
-#ifndef PGXC
 void		_PG_init(void);
 
 /* hook */
@@ -67,8 +66,6 @@ pluj_shmem_request(void)
 	RequestAddinShmemSpace(mul_size(MAX_USERS,sizeof(worker_data_head)));
 	RequestNamedLWLockTranche("pluj_background_workers", 1);
 }
-#endif
-
 
 worker_data_head*
 launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
