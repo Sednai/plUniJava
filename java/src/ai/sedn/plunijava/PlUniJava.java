@@ -6,6 +6,8 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_DOUBLE;
 import static java.lang.foreign.ValueLayout.JAVA_FLOAT;
 import static java.lang.foreign.ValueLayout.JAVA_BOOLEAN;
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
+import static java.lang.foreign.ValueLayout.JAVA_CHAR;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 import java.lang.foreign.Arena;
@@ -17,6 +19,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.GroupLayout;
 import java.lang.invoke.VarHandle;
+import java.nio.charset.StandardCharsets;
 import java.lang.foreign.SequenceLayout;
 import java.lang.foreign.SegmentAllocator;
 
@@ -36,6 +39,7 @@ public class PlUniJava {
 	private MethodHandle lib_getint;
 	private MethodHandle lib_getboolean;
 	private MethodHandle lib_getlong;
+	private MethodHandle lib_getstring;
 	private MethodHandle lib_getdoublearray;
 	private MethodHandle lib_getvector;
 	
@@ -95,7 +99,10 @@ public class PlUniJava {
 		FunctionDescriptor lib_getboolean_sig = FunctionDescriptor.of(JAVA_BOOLEAN,JAVA_INT);
 		lib_getboolean = linker.downcallHandle(lib_getboolean_addr, lib_getboolean_sig); 
 		
-
+		MemorySegment lib_getstring_addr = lib.find("getstring").get();
+		FunctionDescriptor lib_getstring_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
+		lib_getstring = linker.downcallHandle(lib_getstring_addr, lib_getstring_sig); 
+	
 		MemorySegment lib_getdoublearray_addr = lib.find("getdoublearray").get();
 		FunctionDescriptor lib_getdoublearray_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
 		lib_getdoublearray = linker.downcallHandle(lib_getdoublearray_addr, lib_getdoublearray_sig); 
@@ -203,7 +210,25 @@ public void execute_nc(String query) throws Throwable {
 		return (boolean) lib_getboolean.invokeExact(column);		
 	}
 	
+	public String getstring(int column)  throws Throwable {
+		MemorySegment next = (MemorySegment) lib_getstring.invokeExact(column);  
 	
+		int size = (int) resultSize.get(next);
+		
+		if(size > 0) {
+			MemorySegment ARR = (MemorySegment) resultArr.get(next);
+			
+			SequenceLayout L = MemoryLayout.sequenceLayout(size,JAVA_BYTE);
+			ARR = ARR.reinterpret(L.byteSize());
+			
+			byte[] ret = ARR.toArray(JAVA_BYTE);
+		
+			return new String(ret, StandardCharsets.UTF_8);
+		}
+		
+		return null;	
+	}
+
 	public double[] getdoublearray(int column) throws Throwable{
 		
 		MemorySegment next = (MemorySegment) lib_getdoublearray.invokeExact(column);  

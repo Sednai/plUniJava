@@ -235,22 +235,23 @@ bool getboolean(int column) {
     return NAN;
 }
 
-
-// NOT READY YET <- Need to pipe through varlena structure directly
-/*
 char_array_data* getstring(int column) {
    if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
  
-    	text* txt = DatumGetTextP( RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] );
-        int len = VARSIZE_ANY_EXHDR(txt)+1;
-        char t[len];
-        text_to_cstring_buffer(txt, &t, len);
-
-        return t;
+    	text* txt = pg_detoast_datum_packed( DatumGetTextP( RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] ) );
+        int len = VARSIZE_ANY_EXHDR(txt);
+        
+        CHAR_ARRAY_CACHE[0].arr = VARDATA_ANY(txt);
+        CHAR_ARRAY_CACHE[0].size = len;
+  
+        return CHAR_ARRAY_CACHE;
    }
-   return NULL;
+   CHAR_ARRAY_CACHE[0].arr = NULL;
+   CHAR_ARRAY_CACHE[0].size = 0;
+
+   return CHAR_ARRAY_CACHE;
 }
-*/
+
 
 double_array_data* getdoublearray(int column) { 
     if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
