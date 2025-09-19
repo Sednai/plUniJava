@@ -36,11 +36,11 @@ typedef struct Vector
 
 extern bool activeSPI;
 
-extern int connect_SPI();
-extern void disconnect_SPI();
+extern int connect_SPI(void);
+extern void disconnect_SPI(void);
 extern int execute(char* query, bool use_cursor);
 
-extern bool fetch_next();
+extern bool fetch_next(void);
 
 extern double getdouble(int column);
 extern float getfloat(int column);
