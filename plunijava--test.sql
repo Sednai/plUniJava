@@ -1,4 +1,12 @@
 CREATE EXTENSION PLUNIJAVA;
+-- bool
+CREATE OR REPLACE FUNCTION f_test_bool1(boolean) RETURNS boolean AS 'F|ai/sedn/plunijava/Tests|test_bool1' LANGUAGE UJAVA;
+CREATE OR REPLACE FUNCTION b_test_bool1(boolean) RETURNS boolean AS 'B|ai/sedn/plunijava/Tests|test_bool1' LANGUAGE UJAVA;
+CREATE OR REPLACE FUNCTION g_test_bool1(boolean) RETURNS boolean AS 'G|ai/sedn/plunijava/Tests|test_bool1' LANGUAGE UJAVA;
+
+SELECT f_test_bool1('t');
+SELECT b_test_bool1('t');
+SELECT g_test_bool1('t');
 
 -- int
 CREATE OR REPLACE FUNCTION f_test_int1(int) RETURNS int AS 'F|ai/sedn/plunijava/Tests|test_int1' LANGUAGE UJAVA;

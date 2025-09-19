@@ -34,6 +34,7 @@ public class PlUniJava {
 	private MethodHandle lib_getdouble;
 	private MethodHandle lib_getfloat;
 	private MethodHandle lib_getint;
+	private MethodHandle lib_getboolean;
 	private MethodHandle lib_getlong;
 	private MethodHandle lib_getdoublearray;
 	private MethodHandle lib_getvector;
@@ -89,7 +90,12 @@ public class PlUniJava {
 		MemorySegment lib_getlong_addr = lib.find("getlong").get();
 		FunctionDescriptor lib_getlong_sig = FunctionDescriptor.of(JAVA_LONG,JAVA_INT);
 		lib_getlong = linker.downcallHandle(lib_getlong_addr, lib_getlong_sig); 
-			
+		
+		MemorySegment lib_getboolean_addr = lib.find("getboolean").get();
+		FunctionDescriptor lib_getboolean_sig = FunctionDescriptor.of(JAVA_BOOLEAN,JAVA_INT);
+		lib_getboolean = linker.downcallHandle(lib_getboolean_addr, lib_getboolean_sig); 
+		
+
 		MemorySegment lib_getdoublearray_addr = lib.find("getdoublearray").get();
 		FunctionDescriptor lib_getdoublearray_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
 		lib_getdoublearray = linker.downcallHandle(lib_getdoublearray_addr, lib_getdoublearray_sig); 
@@ -191,6 +197,10 @@ public void execute_nc(String query) throws Throwable {
 	
 	public long getlong(int column) throws Throwable {
 		return (long) lib_getlong.invokeExact(column);		
+	}
+	
+	public boolean getboolean(int column) throws Throwable {
+		return (boolean) lib_getboolean.invokeExact(column);		
 	}
 	
 	

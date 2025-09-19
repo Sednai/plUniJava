@@ -334,11 +334,7 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
         entry->n_return = natts;
         entry->notify_latch = MyLatch;
 
-#ifdef PGXC        
-        entry->n_args = argSerializer(entry->data, signature, &fcinfo->arg );
-#else
         entry->n_args = argSerializer(entry->data, signature, &fcinfo->args );
-#endif
 
         // Push
         dlist_push_tail(&worker_head->exec_list,&entry->node);
@@ -1291,6 +1287,9 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                     case 'D':
                         target[ac].d =  (jdouble) PG_GETARG_FLOAT8(ac);
                         break;
+                    case 'Z':
+                        target[ac].z = (jboolean) PG_GETARG_BOOL(ac);
+                        break;
                     default:
                         elog(ERROR,"Argument type not implemented yet for foreground Java worker");
                 }
@@ -1511,18 +1510,11 @@ void GetNAttributes(HeapTupleHeader tuple,
     ItemPointerSetInvalid(&(tmptup.t_self));
     tmptup.t_tableOid = InvalidOid;
     tmptup.t_data = tuple;
-#ifdef PGXC
-	tmptup.t_xc_node_id = InvalidOid;
-#endif
     
     for(int16 a = 0; a < N; a++) 
     {
 
-#ifdef PGXC
-        passbyval[a] = tupDesc->attrs[a]->attbyval;
-#else
         passbyval[a] = TupleDescAttr(tupDesc, a)->attbyval;
-#endif
         datum[a] = heap_getattr(&tmptup,
                           a+1,
                           tupDesc,

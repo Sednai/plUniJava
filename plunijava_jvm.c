@@ -36,6 +36,7 @@ char* convert_name_to_JNI_signature(char* name, char* error_msg) {
                 case 'F':
                 case 'D':
                 case 'L':
+                case 'Z':
                     return name;
             }
         }
@@ -49,6 +50,8 @@ char* convert_name_to_JNI_signature(char* name, char* error_msg) {
             return "F";
         } else if (strcmp(name, "long") == 0) {
             return "J";
+        } else if (strcmp(name, "boolean") == 0) {
+            return "Z";
         // Objects
         } else if (strcmp(name, "java.lang.String") == 0 ) {
             return "Ljava/lang/String;";

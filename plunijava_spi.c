@@ -223,6 +223,19 @@ long getlong(int column) {
     return NAN;
 }
 
+bool getboolean(int column) {
+    if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
+        if(RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] != NULL) {
+            return DatumGetBool( RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] );
+        } else {
+            // Return 0 for NULL
+            return 0;
+        }
+    }
+    return NAN;
+}
+
+
 // NOT READY YET <- Need to pipe through varlena structure directly
 /*
 char_array_data* getstring(int column) {

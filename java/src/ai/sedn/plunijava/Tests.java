@@ -5,6 +5,14 @@ import java.util.ArrayList;
 import java.util.Iterator;
 
 public class Tests {
+	
+	/*
+	 * Boolean
+	 */
+	
+	 public static boolean test_bool1(boolean in) throws SQLException  {
+        return in;
+    }
 
 	/*
 	 * Integer
