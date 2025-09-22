@@ -42,6 +42,7 @@ public class PlUniJava {
 	private MethodHandle lib_getstring;
 	private MethodHandle lib_getintarray;
 	private MethodHandle lib_getdoublearray;
+	private MethodHandle lib_getfloatarray;
 	private MethodHandle lib_getvector;
 	
 	private GroupLayout arrayLayout = MemoryLayout.structLayout(
@@ -111,7 +112,11 @@ public class PlUniJava {
 		MemorySegment lib_getdoublearray_addr = lib.find("getdoublearray").get();
 		FunctionDescriptor lib_getdoublearray_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
 		lib_getdoublearray = linker.downcallHandle(lib_getdoublearray_addr, lib_getdoublearray_sig); 
-	
+
+		MemorySegment lib_getfloatarray_addr = lib.find("getfloatarray").get();
+		FunctionDescriptor lib_getfloatarray_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
+		lib_getfloatarray = linker.downcallHandle(lib_getfloatarray_addr, lib_getfloatarray_sig); 
+
 		MemorySegment lib_getvector_addr = lib.find("getvector").get();
 		FunctionDescriptor lib_getvector_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
 		lib_getvector = linker.downcallHandle(lib_getvector_addr, lib_getvector_sig); 	
@@ -267,6 +272,26 @@ public class PlUniJava {
 			ARR = ARR.reinterpret(L.byteSize());
 			
 			double[] ret = ARR.toArray(JAVA_DOUBLE);
+		
+			return ret;
+		}
+		
+		return null;
+	}
+
+	public float[] getfloatarray(int column) throws Throwable{
+		
+		MemorySegment next = (MemorySegment) lib_getfloatarray.invokeExact(column);  
+	
+		int size = (int) resultSize.get(next);
+		
+		if(size > 0) {
+			MemorySegment ARR = (MemorySegment) resultArr.get(next);
+			
+			SequenceLayout L = MemoryLayout.sequenceLayout(size,JAVA_FLOAT);
+			ARR = ARR.reinterpret(L.byteSize());
+			
+			float[] ret = ARR.toArray(JAVA_FLOAT);
 		
 			return ret;
 		}

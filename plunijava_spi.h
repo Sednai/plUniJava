@@ -55,6 +55,7 @@ extern bool getboolean(int column);
 
 extern int_array_data* getintarray(int column);
 extern double_array_data* getdoublearray(int column);
+extern float_array_data* getfloatarray(int column);
 extern float_array_data* getvector(int column);
 extern char_array_data* getstring(int column);
 

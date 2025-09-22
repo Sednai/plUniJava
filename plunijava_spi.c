@@ -287,6 +287,20 @@ double_array_data* getdoublearray(int column) {
     return DOUBLE_ARRAY_CACHE;          
 }
 
+float_array_data* getfloatarray(int column) { 
+    if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
+        int pos = RCACHE.pos*RCACHE.ncols+column-1;
+        ArrayType* arr = DatumGetArrayTypeP( RCACHE.data[pos] );  
+        FLOAT_ARRAY_CACHE[0].size = (int) ArrayGetNItems(ARR_NDIM(arr), ARR_DIMS(arr));
+        FLOAT_ARRAY_CACHE[0].arr = (float*) ARR_DATA_PTR(arr);
+        return FLOAT_ARRAY_CACHE;
+    } 
+    FLOAT_ARRAY_CACHE[0].arr = NULL;
+    FLOAT_ARRAY_CACHE[0].size = 0;
+
+    return FLOAT_ARRAY_CACHE;          
+}
+
 float_array_data* getvector(int column) { 
     if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
         int pos = RCACHE.pos*RCACHE.ncols+column-1;

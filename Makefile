@@ -17,6 +17,6 @@ include $(PGXS)
 
 all:
 	./build_java.sh
-install:
+install_jar:
 	/usr/bin/mkdir -p $(PGSDIR)/plunijava
 	/usr/bin/install -c -m 755  java/target/*.jar $(PGSDIR)/plunijava	
