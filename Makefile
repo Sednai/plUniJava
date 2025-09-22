@@ -12,4 +12,11 @@ PG_CFLAGS += -std=c99 -Wno-error=vla -Wno-vla -Wno-declaration-after-statement -
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
+PGSDIR := $(shell $(PG_CONFIG) --sharedir)
 include $(PGXS)
+
+all:
+	./build_java.sh
+install:
+	/usr/bin/mkdir -p $(PGSDIR)/plunijava
+	/usr/bin/install -c -m 755  java/target/*.jar $(PGSDIR)/plunijava	
