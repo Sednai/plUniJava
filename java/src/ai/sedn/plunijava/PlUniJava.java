@@ -40,6 +40,7 @@ public class PlUniJava {
 	private MethodHandle lib_getboolean;
 	private MethodHandle lib_getlong;
 	private MethodHandle lib_getstring;
+	private MethodHandle lib_getintarray;
 	private MethodHandle lib_getdoublearray;
 	private MethodHandle lib_getvector;
 	
@@ -103,6 +104,10 @@ public class PlUniJava {
 		FunctionDescriptor lib_getstring_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
 		lib_getstring = linker.downcallHandle(lib_getstring_addr, lib_getstring_sig); 
 	
+		MemorySegment lib_getintarray_addr = lib.find("getintarray").get();
+		FunctionDescriptor lib_getintarray_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
+		lib_getintarray = linker.downcallHandle(lib_getintarray_addr, lib_getintarray_sig); 
+	
 		MemorySegment lib_getdoublearray_addr = lib.find("getdoublearray").get();
 		FunctionDescriptor lib_getdoublearray_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
 		lib_getdoublearray = linker.downcallHandle(lib_getdoublearray_addr, lib_getdoublearray_sig); 
@@ -135,7 +140,7 @@ public class PlUniJava {
 		}
 	}
 	
-public void execute_nc(String query) throws Throwable {
+	public void execute_nc(String query) throws Throwable {
 		
 		var cString = arena.allocateUtf8String(query);
 		
@@ -227,6 +232,26 @@ public void execute_nc(String query) throws Throwable {
 		}
 		
 		return null;	
+	}
+
+	public int[] getintarray(int column) throws Throwable{
+		
+		MemorySegment next = (MemorySegment) lib_getintarray.invokeExact(column);  
+	
+		int size = (int) resultSize.get(next);
+		
+		if(size > 0) {
+			MemorySegment ARR = (MemorySegment) resultArr.get(next);
+			
+			SequenceLayout L = MemoryLayout.sequenceLayout(size,JAVA_INT);
+			ARR = ARR.reinterpret(L.byteSize());
+			
+			int[] ret = ARR.toArray(JAVA_INT);
+		
+			return ret;
+		}
+		
+		return null;
 	}
 
 	public double[] getdoublearray(int column) throws Throwable{

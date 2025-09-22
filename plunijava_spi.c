@@ -15,6 +15,8 @@ Datum* prefetch;
 int proc = 0;
 
 row_cache RCACHE;
+
+int_array_data* INT_ARRAY_CACHE;
 double_array_data* DOUBLE_ARRAY_CACHE;
 float_array_data* FLOAT_ARRAY_CACHE;
 char_array_data* CHAR_ARRAY_CACHE;
@@ -31,6 +33,7 @@ int connect_SPI() {
         // Init
         A = palloc(1*sizeof(double_array_data));
         
+        INT_ARRAY_CACHE = palloc(1*sizeof(int_array_data));
         DOUBLE_ARRAY_CACHE = palloc(1*sizeof(double_array_data));
         FLOAT_ARRAY_CACHE = palloc(1*sizeof(float_array_data));
         CHAR_ARRAY_CACHE = palloc(1*sizeof(char_array_data));
@@ -53,7 +56,11 @@ void disconnect_SPI() {
             pfree(RCACHE.data);
             RCACHE.data = NULL;
             RCACHE.pos = -1;
-        }     
+        }    
+        if(INT_ARRAY_CACHE!=NULL) {
+            pfree(INT_ARRAY_CACHE);
+            INT_ARRAY_CACHE = NULL;
+        } 
         if(DOUBLE_ARRAY_CACHE!=NULL) {
             pfree(DOUBLE_ARRAY_CACHE);
             DOUBLE_ARRAY_CACHE = NULL;
@@ -252,6 +259,19 @@ char_array_data* getstring(int column) {
    return CHAR_ARRAY_CACHE;
 }
 
+int_array_data* getintarray(int column) { 
+    if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
+        int pos = RCACHE.pos*RCACHE.ncols+column-1;
+        ArrayType* arr = DatumGetArrayTypeP( RCACHE.data[pos] );  
+        INT_ARRAY_CACHE[0].size = (int) ArrayGetNItems(ARR_NDIM(arr), ARR_DIMS(arr));
+        INT_ARRAY_CACHE[0].arr = (int*) ARR_DATA_PTR(arr);
+        return INT_ARRAY_CACHE;
+    } 
+    INT_ARRAY_CACHE[0].arr = NULL;
+    INT_ARRAY_CACHE[0].size = 0;
+
+    return INT_ARRAY_CACHE;          
+}
 
 double_array_data* getdoublearray(int column) { 
     if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {

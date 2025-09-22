@@ -1,4 +1,5 @@
 CREATE EXTENSION PLUNIJAVA;
+
 -- bool
 CREATE OR REPLACE FUNCTION f_test_bool1(boolean) RETURNS boolean AS 'F|ai/sedn/plunijava/Tests|test_bool1' LANGUAGE UJAVA;
 CREATE OR REPLACE FUNCTION b_test_bool1(boolean) RETURNS boolean AS 'B|ai/sedn/plunijava/Tests|test_bool1' LANGUAGE UJAVA;
@@ -138,11 +139,20 @@ CREATE OR REPLACE FUNCTION f_test_njdbc3() RETURNS SETOF TESTTYPE4 AS 'S|ai/sedn
 
 SELECT f_test_njdbc3();
 
+CREATE TABLE test_table4(id int, data int[]);
+INSERT INTO test_table4 (id,data) VALUES (1,'{1,2,3}'),(2,'{2,3,4}'),(3,'{3,4,5}');
+
+CREATE OR REPLACE FUNCTION f_test_njdbc4() RETURNS SETOF TESTTYPE1 AS 'S|ai/sedn/plunijava/Tests|test_njdbc4|()Ljava/util/Iterator;' LANGUAGE UJAVA;
+
+SELECT f_test_njdbc4();
+
 
 --Cleanup
 DROP TABLE test_table1;
 DROP TABLE test_table2;
 DROP TABLE test_table3;
+DROP TABLE test_table4;
+
 DROP TYPE TESTTYPE1 CASCADE;
 DROP TYPE TESTTYPE2 CASCADE;
 DROP TYPE TESTTYPE3 CASCADE;

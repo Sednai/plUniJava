@@ -183,8 +183,7 @@ public class Tests {
 	    
 	    unij.disconnect();
 	
-		return L.listIterator();
-		
+		return L.listIterator();	
 	}
 
 	public static Iterator test_njdbc2() throws Throwable {
@@ -224,6 +223,29 @@ public class Tests {
 			TestType4 R = new TestType4();
 	    	R.A = unij.getstring(2);
 	    	
+	    	L.add(R);
+	    }
+	    
+	    unij.disconnect();
+	
+		return L.listIterator();		
+	}
+
+	public static Iterator test_njdbc4() throws Throwable {
+		
+		ArrayList<TestType1> L = new ArrayList<TestType1>();
+		
+		PlUniJava unij = new PlUniJava();
+			
+	    unij.connect();
+	    
+	    unij.execute("select id,data from test_table4 order by id");
+	    
+	    while(unij.fetch_next()) {
+			TestType1 R = new TestType1();
+	    	R.A = unij.getintarray(2)[0];
+			R.B = 0;
+
 	    	L.add(R);
 	    }
 	    

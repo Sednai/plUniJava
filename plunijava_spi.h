@@ -4,6 +4,11 @@
 #include "postgres.h"
 
 typedef struct {
+    int* arr;
+    int size;
+} int_array_data;
+
+typedef struct {
     double* arr;
     int size;
 } double_array_data;
@@ -48,6 +53,7 @@ extern int getint(int column);
 extern long getlong(int column);
 extern bool getboolean(int column);
 
+extern int_array_data* getintarray(int column);
 extern double_array_data* getdoublearray(int column);
 extern float_array_data* getvector(int column);
 extern char_array_data* getstring(int column);
