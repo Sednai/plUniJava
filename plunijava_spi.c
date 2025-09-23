@@ -21,6 +21,8 @@ double_array_data* DOUBLE_ARRAY_CACHE;
 float_array_data* FLOAT_ARRAY_CACHE;
 char_array_data* CHAR_ARRAY_CACHE;
 
+float_multiarray_data* FLOAT_MULTIARRAY_CACHE;
+
 int connect_SPI() {
     if(!activeSPI) {
         return -1;
@@ -37,7 +39,9 @@ int connect_SPI() {
         DOUBLE_ARRAY_CACHE = palloc(1*sizeof(double_array_data));
         FLOAT_ARRAY_CACHE = palloc(1*sizeof(float_array_data));
         CHAR_ARRAY_CACHE = palloc(1*sizeof(char_array_data));
-        
+      
+        FLOAT_MULTIARRAY_CACHE = palloc(1*sizeof(float_multiarray_data));
+      
         proc = 0;
         
         SPI_connected = true;
@@ -73,7 +77,10 @@ void disconnect_SPI() {
             pfree(CHAR_ARRAY_CACHE);
             CHAR_ARRAY_CACHE = NULL;
         }
-        
+        if(FLOAT_MULTIARRAY_CACHE!=NULL) {
+            pfree(FLOAT_MULTIARRAY_CACHE);
+            FLOAT_MULTIARRAY_CACHE = NULL;
+        }
         SPI_finish();
         SPI_connected = false;
     }
@@ -299,6 +306,26 @@ float_array_data* getfloatarray(int column) {
     FLOAT_ARRAY_CACHE[0].size = 0;
 
     return FLOAT_ARRAY_CACHE;          
+}
+
+float_multiarray_data* getfloatmultiarray(int column) { 
+    if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
+        int pos = RCACHE.pos*RCACHE.ncols+column-1;
+        ArrayType* arr = DatumGetArrayTypeP( RCACHE.data[pos] );  
+        FLOAT_MULTIARRAY_CACHE[0].size = (int) ArrayGetNItems(ARR_NDIM(arr), ARR_DIMS(arr));
+        FLOAT_MULTIARRAY_CACHE[0].arr = (float*) ARR_DATA_PTR(arr);
+        FLOAT_MULTIARRAY_CACHE[0].Nd = ARR_NDIM(arr);
+        FLOAT_MULTIARRAY_CACHE[0].dims = ARR_DIMS(arr);
+        
+        return FLOAT_MULTIARRAY_CACHE;
+    } 
+
+    FLOAT_MULTIARRAY_CACHE[0].arr = NULL;
+    FLOAT_MULTIARRAY_CACHE[0].size = 0;
+    FLOAT_MULTIARRAY_CACHE[0].Nd = 0;
+    FLOAT_MULTIARRAY_CACHE[0].dims = NULL;
+
+    return FLOAT_MULTIARRAY_CACHE;          
 }
 
 float_array_data* getvector(int column) { 

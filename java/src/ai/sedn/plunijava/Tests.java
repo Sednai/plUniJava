@@ -275,6 +275,29 @@ public class Tests {
 	
 		return L.listIterator();	
 	}
+
+	public static Iterator test_njdbc6() throws Throwable {
+		
+		ArrayList<TestType5> L = new ArrayList<TestType5>();
+		
+		PlUniJava unij = new PlUniJava();
+			
+	    unij.connect();
+	    
+	    unij.execute("select id,data from test_table6 order by id");
+	    
+	    while(unij.fetch_next()) {
+			TestType5 R = new TestType5();
+	    	R.A = unij.getint(1);
+			R.B = unij.getfloat2darray(2)[1][0];
+			L.add(R);
+	    }
+	    
+	    unij.disconnect();
+	
+		return L.listIterator();	
+	}
+	
 	
 }
 

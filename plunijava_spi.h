@@ -23,6 +23,13 @@ typedef struct {
     int size;
 } char_array_data;
 
+typedef struct {
+    float* arr;
+    int size;
+    int Nd;
+    int* dims;
+} float_multiarray_data;
+
 
 typedef struct {
     int ncols;
@@ -58,6 +65,8 @@ extern double_array_data* getdoublearray(int column);
 extern float_array_data* getfloatarray(int column);
 extern float_array_data* getvector(int column);
 extern char_array_data* getstring(int column);
+
+extern float_multiarray_data* getfloatmultiarray(int column); 
 
 /* ? CHECK IF CAN BE DEPRECATED */
 extern double_array_data* fetch_next_double_array(int column);

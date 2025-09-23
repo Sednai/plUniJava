@@ -44,14 +44,27 @@ public class PlUniJava {
 	private MethodHandle lib_getdoublearray;
 	private MethodHandle lib_getfloatarray;
 	private MethodHandle lib_getvector;
-	
+	private MethodHandle lib_getfloatmultiarray;
+
 	private GroupLayout arrayLayout = MemoryLayout.structLayout(
 			ADDRESS.withName("arr"),
 			JAVA_INT.withName("size")
 	);
 	
+	private GroupLayout multiarrayLayout = MemoryLayout.structLayout(
+			ADDRESS.withName("arr"),
+			JAVA_INT.withName("size"),
+			JAVA_INT.withName("Nd"),
+			ADDRESS.withName("dims")
+	);
+	
 	private VarHandle resultSize = arrayLayout.varHandle(MemoryLayout.PathElement.groupElement("size"));
 	private VarHandle resultArr = arrayLayout.varHandle(MemoryLayout.PathElement.groupElement("arr"));
+	
+	private VarHandle mresultSize = multiarrayLayout.varHandle(MemoryLayout.PathElement.groupElement("size"));
+	private VarHandle mresultArr = multiarrayLayout.varHandle(MemoryLayout.PathElement.groupElement("arr"));
+	private VarHandle mresultNd = multiarrayLayout.varHandle(MemoryLayout.PathElement.groupElement("Nd"));
+	private VarHandle mresultDims = multiarrayLayout.varHandle(MemoryLayout.PathElement.groupElement("dims"));
 	
 	public PlUniJava() {
 		Linker linker = Linker.nativeLinker();		
@@ -116,6 +129,10 @@ public class PlUniJava {
 		MemorySegment lib_getfloatarray_addr = lib.find("getfloatarray").get();
 		FunctionDescriptor lib_getfloatarray_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
 		lib_getfloatarray = linker.downcallHandle(lib_getfloatarray_addr, lib_getfloatarray_sig); 
+
+		MemorySegment lib_getfloatmultiarray_addr = lib.find("getfloatmultiarray").get();
+		FunctionDescriptor lib_getfloatmultiarray_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(multiarrayLayout),JAVA_INT);
+		lib_getfloatmultiarray = linker.downcallHandle(lib_getfloatmultiarray_addr, lib_getfloatmultiarray_sig); 
 
 		MemorySegment lib_getvector_addr = lib.find("getvector").get();
 		FunctionDescriptor lib_getvector_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
@@ -281,7 +298,7 @@ public class PlUniJava {
 
 	public float[] getfloatarray(int column) throws Throwable{
 		
-		MemorySegment next = (MemorySegment) lib_getfloatarray.invokeExact(column);  
+		MemorySegment next = (MemorySegment) lib_getfloatmultiarray.invokeExact(column);  
 	
 		int size = (int) resultSize.get(next);
 		
@@ -298,6 +315,43 @@ public class PlUniJava {
 		
 		return null;
 	}
+	
+	public float[][] getfloat2darray(int column) throws Throwable {
+		
+		MemorySegment next = (MemorySegment) lib_getfloatmultiarray.invokeExact(column);  
+	
+		int size = (int) mresultSize.get(next);
+		int Nd = (int) mresultNd.get(next);
+		
+		if(size > 0 && Nd == 2) {
+			MemorySegment ARR = (MemorySegment) mresultArr.get(next);
+			MemorySegment DIMS = (MemorySegment) mresultDims.get(next);
+			ARR = ARR.reinterpret(size*4);
+
+			SequenceLayout LD = MemoryLayout.sequenceLayout(Nd,JAVA_INT);
+			DIMS = DIMS.reinterpret(LD.byteSize());
+			
+			int[] dims = DIMS.toArray(JAVA_INT);
+			float[][] RET = new float[dims[0]][];
+		
+			SequenceLayout LA = MemoryLayout.sequenceLayout(dims[1],JAVA_FLOAT);
+			
+			for(int i = 0; i < dims[0]; i++) {
+				MemorySegment R = ARR.asSlice(i*dims[1]*4, dims[1]*4);
+				R = R.reinterpret(LA.byteSize());
+				RET[i] = R.toArray(JAVA_FLOAT);
+			}
+	
+			return RET;
+		} else {
+			if(Nd != 2) {
+				throw new Exception("Array needs to be 2 dimensional, not "+Nd+"d."); 
+			}
+		}
+		
+		return null;
+	}
+
 	
 	public float[] getvector(int column) throws Throwable{
 		
