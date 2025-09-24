@@ -686,7 +686,7 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
     // Prep arguments
     jvalue args[fcinfo->nargs];
     short argprim[fcinfo->nargs];
-    memset(argprim, 0, sizeof(argprim));
+    MemSet(argprim, 0, sizeof(argprim));
     argToJava(args, signature, fcinfo, argprim);
     
     // Call java function
@@ -703,23 +703,23 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
         } else {
             natts = 1;
         }
+        
         Datum values[natts];
-        bool* nulls = palloc0( natts * sizeof( bool ) );
         bool primitive[natts];
-        memset(primitive, 0, sizeof(primitive));
-        //elog(WARNING,"[DEBUG] %s",return_type);
+        MemSet(primitive, 0, sizeof(primitive));
+      
         jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args[0], error_msg);
     
         if(jfr == 0) {     
             if(need_SPI) disconnect_SPI();
             PopActiveSnapshot();
             if(tupdesc != NULL && natts > 0) {
+                bool* nulls = palloc0( natts * sizeof( bool ) );
                 HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
                 pfree(nulls);
                 freejvalues(args, argprim, fcinfo->nargs);
                 PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));
             } else {
-                pfree(nulls);
                 freejvalues(args, argprim, fcinfo->nargs);
                 
                 if(return_type[0] == 'V')
@@ -727,9 +727,7 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
                 
                 PG_RETURN_DATUM( values[0] );
             }
-        } else {
-            pfree(nulls);
-        }
+        } 
     } else {
      
         MemoryContext   per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;

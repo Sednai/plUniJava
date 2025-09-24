@@ -99,7 +99,7 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 	SpinLockAcquire(&worker_head->lock);
 
 	/* initialize worker data header */
-	memset(worker_head, 0, sizeof(worker_data_head));
+	MemSet(worker_head, 0, sizeof(worker_data_head));
     dlist_init(&worker_head->exec_list);
     dlist_init(&worker_head->free_list);
 	dlist_init(&worker_head->return_list);
@@ -116,7 +116,7 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		BgwHandleStatus status;
 		pid_t		pid;
 		
-		memset(&worker, 0, sizeof(worker));
+		MemSet(&worker, 0, sizeof(worker));
 		worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
 		worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
 		worker.bgw_restart_time = BGW_NEVER_RESTART; // Time in s to restart if crash. Use BGW_NEVER_RESTART for no restart;
@@ -585,7 +585,7 @@ plunijava_worker_main(Datum main_arg)
 		elog(ERROR,"Shared memory for background worker has not been initialized (%s)",buf);
 		/*
 		// initialize worker data header 
-		memset(worker_head, 0, sizeof(worker_data_head));
+		MemSet(worker_head, 0, sizeof(worker_data_head));
 		dlist_init(&worker_head->exec_list);
 		dlist_init(&worker_head->free_list);
 		dlist_init(&worker_head->return_list);
@@ -681,12 +681,12 @@ plunijava_worker_main(Datum main_arg)
 		
 		Datum values[entry->n_return];
 		bool primitive[entry->n_return];
-		memset(primitive, 0, sizeof(primitive));
+		MemSet(primitive, 0, sizeof(primitive));
 		
 		// Prepare args
 		jvalue args[entry->n_args];
 		short argprim[entry->n_args];
-		memset(argprim, 0, sizeof(argprim));
+		MemSet(argprim, 0, sizeof(argprim));
 		
 		int jfr = argDeSerializer(args, argprim, entry);
 

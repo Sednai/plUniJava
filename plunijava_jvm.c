@@ -798,7 +798,8 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
                 (*jenv)->ReleaseStringUTFChars(jenv, jstr2, typename);
             }
             tuplestore_putvalues(tupstore, tupdesc, values, nulls);
-
+            
+            pfree(nulls);
             pfree(primitive);
         }
 
