@@ -298,6 +298,50 @@ public class Tests {
 		return L.listIterator();	
 	}
 	
+	public static Iterator test_njdbc7() throws Throwable {
+		
+		ArrayList<TestType1> L = new ArrayList<TestType1>();
+		
+		PlUniJava unij = new PlUniJava();
+			
+	    unij.connect();
+	    
+	    unij.execute("select id,data from test_table7 order by id");
+	    
+	    while(unij.fetch_next()) {
+			TestType1 R = new TestType1();
+	    	
+			unij.getcomplextype(2, R);
+			
+			L.add(R);
+	    }
+	    
+	    unij.disconnect();
 	
+		return L.listIterator();	
+	}
+
+	public static Iterator test_njdbc8() throws Throwable {
+		
+		ArrayList<TestType6> L = new ArrayList<TestType6>();
+		
+		PlUniJava unij = new PlUniJava();
+			
+	    unij.connect();
+	    
+	    unij.execute("select id,data from test_table8 order by id");
+	    
+	    while(unij.fetch_next()) {
+			TestType6 R = new TestType6();
+	    	
+			unij.getcomplextype(2, R);
+			
+			L.add(R);
+	    }
+	    
+	    unij.disconnect();
+	
+		return L.listIterator();	
+	}	
 }
 

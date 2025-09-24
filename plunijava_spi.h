@@ -68,6 +68,12 @@ extern char_array_data* getstring(int column);
 
 extern float_multiarray_data* getfloatmultiarray(int column); 
 
+extern int getintfromcomplextype(int column, const char* name);
+extern double getdoublefromcomplextype(int column, const char* name);
+extern int_array_data* getintarrayfromcomplextype(int column, const char* name);
+extern float_array_data* getfloatarrayfromcomplextype(int column, const char* name);
+extern float_multiarray_data* getfloatmultiarrayfromcomplextype(int column, const char* name);
+
 /* ? CHECK IF CAN BE DEPRECATED */
 extern double_array_data* fetch_next_double_array(int column);
 

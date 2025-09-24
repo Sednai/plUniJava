@@ -25,6 +25,7 @@ import java.lang.foreign.SegmentAllocator;
 
 import java.sql.*;
 
+import java.lang.reflect.Field;
 
 public class PlUniJava {
 	private Arena arena;
@@ -45,6 +46,12 @@ public class PlUniJava {
 	private MethodHandle lib_getfloatarray;
 	private MethodHandle lib_getvector;
 	private MethodHandle lib_getfloatmultiarray;
+	private MethodHandle lib_getintfct;
+	private MethodHandle lib_getdoublefct;
+	private MethodHandle lib_getintarrayfct;
+	private MethodHandle lib_getfloatarrayfct;
+	private MethodHandle lib_getfloatmultiarrayfct;
+	
 
 	private GroupLayout arrayLayout = MemoryLayout.structLayout(
 			ADDRESS.withName("arr"),
@@ -137,6 +144,27 @@ public class PlUniJava {
 		MemorySegment lib_getvector_addr = lib.find("getvector").get();
 		FunctionDescriptor lib_getvector_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
 		lib_getvector = linker.downcallHandle(lib_getvector_addr, lib_getvector_sig); 	
+
+		// For complex types
+		MemorySegment lib_getintfct_addr = lib.find("getintfromcomplextype").get();
+		FunctionDescriptor lib_getintfct_sig = FunctionDescriptor.of(JAVA_INT,JAVA_INT,ADDRESS);
+		lib_getintfct = linker.downcallHandle(lib_getintfct_addr, lib_getintfct_sig); 
+
+		MemorySegment lib_getdoublefct_addr = lib.find("getdoublefromcomplextype").get();
+		FunctionDescriptor lib_getdoublefct_sig = FunctionDescriptor.of(JAVA_DOUBLE,JAVA_INT,ADDRESS);
+		lib_getdoublefct = linker.downcallHandle(lib_getdoublefct_addr, lib_getdoublefct_sig); 
+
+		MemorySegment lib_getintarrayfct_addr = lib.find("getintarrayfromcomplextype").get();
+		FunctionDescriptor lib_getintarrayfct_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT,ADDRESS);
+		lib_getintarrayfct = linker.downcallHandle(lib_getintarrayfct_addr, lib_getintarrayfct_sig); 
+
+		MemorySegment lib_getfloatarrayfct_addr = lib.find("getfloatarrayfromcomplextype").get();
+		FunctionDescriptor lib_getfloatarrayfct_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT,ADDRESS);
+		lib_getfloatarrayfct = linker.downcallHandle(lib_getfloatarrayfct_addr, lib_getfloatarrayfct_sig); 
+
+		MemorySegment lib_getfloatmultiarrayfct_addr = lib.find("getfloatmultiarrayfromcomplextype").get();
+		FunctionDescriptor lib_getfloatmultiarrayfct_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(multiarrayLayout),JAVA_INT,ADDRESS);
+		lib_getfloatmultiarrayfct = linker.downcallHandle(lib_getfloatmultiarrayfct_addr, lib_getfloatmultiarrayfct_sig); 
 	}
 	
 	public void connect() throws Throwable {
@@ -352,7 +380,6 @@ public class PlUniJava {
 		return null;
 	}
 
-	
 	public float[] getvector(int column) throws Throwable{
 		
 		MemorySegment next = (MemorySegment) lib_getvector.invokeExact(column);  
@@ -370,6 +397,141 @@ public class PlUniJava {
 			return ret;
 		}
 		
+		return null;
+	}
+
+	public void getcomplextype(int column, Object ctype) throws Throwable {
+		// Unpack object
+		Field[] F = ctype.getClass().getFields();
+		
+		// Run over fields
+		for(Field f : F) {
+			String name = f.getName();
+			Class type = f.getType();
+			String sig = type.getName();
+			
+			switch(sig) { 
+				case "int": 
+					f.setInt(ctype, getintfromcomplextype(column,name));
+					break;
+
+				case "double": 
+					f.setDouble(ctype, getdoublefromcomplextype(column,name));
+					break;
+				
+				case "[I":
+					f.set(ctype, getintarrayfromcomplextype(column, name));
+					break;
+			
+				case "[F":
+					f.set(ctype, getfloatarrayfromcomplextype(column, name));
+					break;
+
+				case "[[F":
+					f.set(ctype, getfloat2darrayfromcomplextype(column, name));
+					break;
+
+				default: 
+					throw new Exception("Unsupported field in complex type: "+name+" ("+sig+")");
+				
+			}
+		}
+	}
+	
+	private int getintfromcomplextype(int column, String name) throws Throwable {
+		
+		var cString = arena.allocateUtf8String(name.toLowerCase());
+			
+		return (int) lib_getintfct.invokeExact(column,cString);  
+	}
+
+	private double getdoublefromcomplextype(int column, String name) throws Throwable {
+		
+		var cString = arena.allocateUtf8String(name.toLowerCase());
+			
+		return (double) lib_getdoublefct.invokeExact(column,cString);  
+	}
+
+	private int[] getintarrayfromcomplextype(int column, String name) throws Throwable {
+		
+		var cString = arena.allocateUtf8String(name.toLowerCase());
+
+		MemorySegment next = (MemorySegment) lib_getintarrayfct.invokeExact(column,cString);  
+	
+		int size = (int) resultSize.get(next);
+		
+		if(size > 0) {
+			MemorySegment ARR = (MemorySegment) resultArr.get(next);
+			
+			SequenceLayout L = MemoryLayout.sequenceLayout(size,JAVA_INT);
+			ARR = ARR.reinterpret(L.byteSize());
+			
+			int[] ret = ARR.toArray(JAVA_INT);
+		
+			return ret;
+		}
+		
+		return null;
+	}
+
+	private float[] getfloatarrayfromcomplextype(int column, String name) throws Throwable {
+		
+		var cString = arena.allocateUtf8String(name.toLowerCase());
+
+		MemorySegment next = (MemorySegment) lib_getfloatarrayfct.invokeExact(column,cString);  
+	
+		int size = (int) resultSize.get(next);
+		
+		if(size > 0) {
+			MemorySegment ARR = (MemorySegment) resultArr.get(next);
+			
+			SequenceLayout L = MemoryLayout.sequenceLayout(size,JAVA_FLOAT);
+			ARR = ARR.reinterpret(L.byteSize());
+			
+			float[] ret = ARR.toArray(JAVA_FLOAT);
+		
+			return ret;
+		}
+		
+		return null;
+	}
+	
+	private float[][] getfloat2darrayfromcomplextype(int column, String name) throws Throwable {
+		var cString = arena.allocateUtf8String(name.toLowerCase());
+		
+		MemorySegment next = (MemorySegment) lib_getfloatmultiarrayfct.invokeExact(column,cString);  
+	
+		int size = (int) mresultSize.get(next);
+		int Nd = (int) mresultNd.get(next);
+		
+		if(size > 0 && Nd == 2) {
+	
+			MemorySegment ARR = (MemorySegment) mresultArr.get(next);
+			MemorySegment DIMS = (MemorySegment) mresultDims.get(next);
+			ARR = ARR.reinterpret(size*4);
+
+			SequenceLayout LD = MemoryLayout.sequenceLayout(Nd,JAVA_INT);
+			DIMS = DIMS.reinterpret(LD.byteSize());
+			
+			int[] dims = DIMS.toArray(JAVA_INT);
+			float[][] RET = new float[dims[0]][];
+		
+			SequenceLayout LA = MemoryLayout.sequenceLayout(dims[1],JAVA_FLOAT);
+			
+			for(int i = 0; i < dims[0]; i++) {
+				MemorySegment R = ARR.asSlice(i*dims[1]*4, dims[1]*4);
+				R = R.reinterpret(LA.byteSize());
+				RET[i] = R.toArray(JAVA_FLOAT);
+			}
+	
+			return RET;
+
+		} else {
+			if(Nd != 2) {
+				throw new Exception("Array needs to be 2 dimensional, not "+Nd+"d."); 
+			}
+		}
+
 		return null;
 	}
 }

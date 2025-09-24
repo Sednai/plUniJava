@@ -161,6 +161,23 @@ CREATE OR REPLACE FUNCTION f_test_njdbc6() RETURNS SETOF TESTTYPE5 AS 'S|ai/sedn
 
 SELECT f_test_njdbc6();
 
+CREATE TABLE test_table7(id int, data TESTTYPE1);
+INSERT INTO test_table7 (id,data) VALUES (1,'(1,0.1)'),(2,'(2,0.2)'),(3,'(3,0.3)');
+
+CREATE OR REPLACE FUNCTION f_test_njdbc7() RETURNS SETOF TESTTYPE1 AS 'S|ai/sedn/plunijava/Tests|test_njdbc7|()Ljava/util/Iterator;' LANGUAGE UJAVA;
+
+SELECT f_test_njdbc7();
+
+
+CREATE TYPE TESTTYPE6 as (A int[], B float4[], C float4[][]);
+
+CREATE TABLE test_table8(id int, data TESTTYPE6);
+INSERT INTO test_table8 (id,data) VALUES (1,('{1,2,3}','{0.1,0.2,0.3,0.4}','{{0.1},{0.2}}'));
+
+CREATE OR REPLACE FUNCTION f_test_njdbc8() RETURNS SETOF TESTTYPE6 AS 'S|ai/sedn/plunijava/Tests|test_njdbc8|()Ljava/util/Iterator;' LANGUAGE UJAVA;
+
+SELECT f_test_njdbc8();
+
 
 --Cleanup
 DROP TABLE test_table1;
@@ -169,11 +186,14 @@ DROP TABLE test_table3;
 DROP TABLE test_table4;
 DROP TABLE test_table5;
 DROP TABLE test_table6;
+DROP TABLE test_table7;
+DROP TABLE test_table8;
 
 DROP TYPE TESTTYPE1 CASCADE;
 DROP TYPE TESTTYPE2 CASCADE;
 DROP TYPE TESTTYPE3 CASCADE;
 DROP TYPE TESTTYPE4 CASCADE;
 DROP TYPE TESTTYPE5 CASCADE;
+DROP TYPE TESTTYPE6 CASCADE;
 
 DROP EXTENSION PLUNIJAVA CASCADE;

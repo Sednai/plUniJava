@@ -1,6 +1,7 @@
 #include "plunijava_spi.h"
 #include "postgres.h"
 #include "executor/spi.h" 
+#include "executor/executor.h" 
 #include "utils/array.h"
 #include "math.h"
 
@@ -20,7 +21,6 @@ int_array_data* INT_ARRAY_CACHE;
 double_array_data* DOUBLE_ARRAY_CACHE;
 float_array_data* FLOAT_ARRAY_CACHE;
 char_array_data* CHAR_ARRAY_CACHE;
-
 float_multiarray_data* FLOAT_MULTIARRAY_CACHE;
 
 int connect_SPI() {
@@ -39,7 +39,6 @@ int connect_SPI() {
         DOUBLE_ARRAY_CACHE = palloc(1*sizeof(double_array_data));
         FLOAT_ARRAY_CACHE = palloc(1*sizeof(float_array_data));
         CHAR_ARRAY_CACHE = palloc(1*sizeof(char_array_data));
-      
         FLOAT_MULTIARRAY_CACHE = palloc(1*sizeof(float_multiarray_data));
       
         proc = 0;
@@ -81,6 +80,11 @@ void disconnect_SPI() {
             pfree(FLOAT_MULTIARRAY_CACHE);
             FLOAT_MULTIARRAY_CACHE = NULL;
         }
+        if(A!=NULL) {
+            pfree(A);
+            A = NULL;
+        }
+        
         SPI_finish();
         SPI_connected = false;
     }
@@ -316,7 +320,7 @@ float_multiarray_data* getfloatmultiarray(int column) {
         FLOAT_MULTIARRAY_CACHE[0].arr = (float*) ARR_DATA_PTR(arr);
         FLOAT_MULTIARRAY_CACHE[0].Nd = ARR_NDIM(arr);
         FLOAT_MULTIARRAY_CACHE[0].dims = ARR_DIMS(arr);
-        
+
         return FLOAT_MULTIARRAY_CACHE;
     } 
 
@@ -345,9 +349,116 @@ float_array_data* getvector(int column) {
     return FLOAT_ARRAY_CACHE;          
 }
 
+int getintfromcomplextype(int column, const char* name) {
+    if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
+        if(RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] != (Datum) 0) {
+            bool isnull;
+            
+            HeapTupleHeader t = DatumGetHeapTupleHeader( RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1]  );
+            
+            Datum attr = GetAttributeByName(t, name, &isnull); // Note: By num should be faster
+            
+            if(!isnull)
+                return DatumGetInt32(attr);
+        }
+    }
+    return 0;
+}
+
+double getdoublefromcomplextype(int column, const char* name) {
+    if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
+        if(RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] != (Datum) 0) {
+            bool isnull;
+            
+            HeapTupleHeader t = DatumGetHeapTupleHeader( RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1]  );
+            
+            Datum attr = GetAttributeByName(t, name, &isnull); // Note: By num should be faster
+            
+            if(!isnull)
+                return DatumGetFloat8(attr);
+        }
+    }
+    return NAN;
+}
+
+int_array_data* getintarrayfromcomplextype(int column, const char* name) {
+    if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
+        if(RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] != (Datum) 0) {
+            bool isnull;
+            
+            HeapTupleHeader t = DatumGetHeapTupleHeader( RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1]  );
+            
+            Datum attr = GetAttributeByName(t, name, &isnull); // Note: By num should be faster
+            
+            if(!isnull) {
+                ArrayType* arr = DatumGetArrayTypeP( attr );  
+                INT_ARRAY_CACHE[0].size = (int) ArrayGetNItems(ARR_NDIM(arr), ARR_DIMS(arr));
+                INT_ARRAY_CACHE[0].arr = (int*) ARR_DATA_PTR(arr);
+                
+                return INT_ARRAY_CACHE;
+            }
+        } 
+    }
+    INT_ARRAY_CACHE[0].arr = NULL;
+    INT_ARRAY_CACHE[0].size = 0;
+
+    return INT_ARRAY_CACHE;          
+}
+
+float_array_data* getfloatarrayfromcomplextype(int column, const char* name) {
+    if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
+        if(RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] != (Datum) 0) {
+            bool isnull;
+            
+            HeapTupleHeader t = DatumGetHeapTupleHeader( RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1]  );
+            
+            Datum attr = GetAttributeByName(t, name, &isnull); // Note: By num should be faster
+            
+            if(!isnull) {
+                ArrayType* arr = DatumGetArrayTypeP( attr );  
+                FLOAT_ARRAY_CACHE[0].size = (int) ArrayGetNItems(ARR_NDIM(arr), ARR_DIMS(arr));
+                FLOAT_ARRAY_CACHE[0].arr = (float*) ARR_DATA_PTR(arr);
+                
+                return FLOAT_ARRAY_CACHE;
+            }
+        } 
+    }
+    FLOAT_ARRAY_CACHE[0].arr = NULL;
+    FLOAT_ARRAY_CACHE[0].size = 0;
+
+    return FLOAT_ARRAY_CACHE;          
+}
+
+float_multiarray_data* getfloatmultiarrayfromcomplextype(int column, const char* name) {
+    if(RCACHE.data != NULL && RCACHE.pos > -1 && column > 0 && column <= RCACHE.ncols) {
+        if(RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1] != (Datum) 0) {
+            bool isnull;
+            
+            HeapTupleHeader t = DatumGetHeapTupleHeader( RCACHE.data[RCACHE.pos*RCACHE.ncols+column-1]  );
+            
+            Datum attr = GetAttributeByName(t, name, &isnull); // Note: By num should be faster
+            
+            if(!isnull) {
+                ArrayType* arr = DatumGetArrayTypeP( attr );  
+                FLOAT_MULTIARRAY_CACHE[0].size = (int) ArrayGetNItems(ARR_NDIM(arr), ARR_DIMS(arr));
+                FLOAT_MULTIARRAY_CACHE[0].arr = (float*) ARR_DATA_PTR(arr);
+                FLOAT_MULTIARRAY_CACHE[0].Nd = ARR_NDIM(arr);
+                FLOAT_MULTIARRAY_CACHE[0].dims = ARR_DIMS(arr);
+
+                return FLOAT_MULTIARRAY_CACHE;
+            }
+        } 
+    }
+    FLOAT_MULTIARRAY_CACHE[0].arr = NULL;
+    FLOAT_MULTIARRAY_CACHE[0].size = 0;
+    FLOAT_MULTIARRAY_CACHE[0].Nd = 0;
+    FLOAT_MULTIARRAY_CACHE[0].dims = NULL;
+
+    return FLOAT_MULTIARRAY_CACHE;          
+}
 
 
-
+// Deprecated ?
 double_array_data* fetch_next_double_array(int column) { 
     if(SPI_connected) {
         if(prefetch==NULL) {
